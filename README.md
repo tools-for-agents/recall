@@ -1,5 +1,7 @@
 # 🎯 recall
 
+[![ci](https://github.com/tools-for-agents/recall/actions/workflows/ci.yml/badge.svg)](https://github.com/tools-for-agents/recall/actions/workflows/ci.yml)
+
 **One query across an agent's whole memory.**
 
 An agent's knowledge ends up scattered: some in its second brain ([`cortex`](../cortex)), some in the team's shared memory ([`agent-hq`](../agent-hq)), some in what it's read ([`scout`](../scout)), some in its code ([`lens`](../lens)). Searching each by hand is friction — so agents skip it and re-derive what they already knew. `recall` fixes that: **one query, every store, one ranked briefing** — token-budgeted, each hit tagged by source. Run it at the **start of a task** to load exactly the relevant context.
