@@ -46,8 +46,34 @@ function openRO(path) {
   try { return new DatabaseSync(path, { readOnly: true }); } catch { return null; }
 }
 
+// The team's shared memory lives in agent-hq over HTTP, not a local DB. Query it
+// if reachable; degrade silently (short timeout) when the platform isn't running.
+const hqUrl = () => env('RECALL_HQ_URL') || env('HQ_URL') || 'http://localhost:7700';
+async function hqMemory(term, limit) {
+  try {
+    const res = await fetch(`${hqUrl()}/api/memory?q=${encodeURIComponent(term)}&limit=${limit}`,
+      { signal: AbortSignal.timeout(800) });
+    return res.ok ? await res.json() : [];
+  } catch { return null; } // null = unreachable, [] = reachable-but-empty
+}
+// agent-hq's memory search is a single LIKE, so probe per term (in parallel) and
+// merge — matching the OR-over-terms recall the other stores give.
+async function fetchTeam(query, limit) {
+  const terms = [...new Set((String(query).match(/[A-Za-z0-9_]{2,}/g) || []).map((t) => t.toLowerCase()))].slice(0, 6);
+  const probes = await Promise.all((terms.length ? terms : [String(query)]).map((t) => hqMemory(t, limit)));
+  if (probes.every((p) => p === null)) return null; // platform not running
+  const seen = new Map();
+  for (const rows of probes) if (Array.isArray(rows)) for (const m of rows) if (!seen.has(m.id)) seen.set(m.id, m);
+  return [...seen.values()].map((m) => ({ source: 'team', title: m.title, ref: m.id, meta: m.namespace || 'default',
+    excerpt: (m.content || '').replace(/\s+/g, ' ').trim().slice(0, 240), score: -(m.importance || 3) }));
+}
+
+// Priority order for the round-robin interleave (your brain first, then the team,
+// then what you've read, then code).
+const ORDER = ['brain', 'team', 'reading', 'code'];
+
 // ── federated recall ───────────────────────────────────────────────────────────
-export function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
+export async function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
   const m = ftsQuery(query);
   if (!m) return { query, count: 0, tokens: 0, results: [] };
   const wanted = sources && sources.length ? new Set(sources) : null;
@@ -69,10 +95,15 @@ export function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
     } catch { /* schema drift / fts error → skip this store */ } finally { db.close(); }
   }
 
-  // Interleave round-robin across stores (bm25 isn't comparable across DBs) so the
-  // briefing is balanced, filling to the token budget.
+  if (!wanted || wanted.has('team')) {
+    const team = await fetchTeam(query, Math.max(k * 2, 20));
+    if (team) { searched.push('team'); bySource.team = team; }
+  }
+
+  // Interleave round-robin across stores (scores aren't comparable across sources)
+  // so the briefing is balanced, filling to the token budget.
   for (const s in bySource) bySource[s].sort((a, b) => a.score - b.score);
-  const order = Object.keys(bySource);
+  const order = ORDER.filter((s) => bySource[s]);
   const results = [];
   let tokens = 0;
   for (let i = 0; results.length < k; i++) {
@@ -91,12 +122,19 @@ export function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
 }
 
 // ── which stores are available right now ──────────────────────────────────────
-export function status() {
-  return { stores: STORES.map((s) => {
+export async function status() {
+  const stores = STORES.map((s) => {
     const path = s.db();
     const found = existsSync(path);
-    let notes = null;
-    if (found) { const db = openRO(path); if (db) { try { notes = db.prepare(`SELECT COUNT(*) n FROM ${s.name === 'code' ? 'files' : s.name === 'reading' ? 'pages' : 'notes'}`).get().n; } catch {} db.close(); } }
-    return { store: s.name, tool: s.label, db: path, available: found, entries: notes };
-  }) };
+    let entries = null;
+    if (found) { const db = openRO(path); if (db) { try { entries = db.prepare(`SELECT COUNT(*) n FROM ${s.name === 'code' ? 'files' : s.name === 'reading' ? 'pages' : 'notes'}`).get().n; } catch {} db.close(); } }
+    return { store: s.name, tool: s.label, source: path, available: found, entries };
+  });
+  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), available: false, entries: null };
+  try {
+    const res = await fetch(`${hqUrl()}/api/memory?limit=1`, { signal: AbortSignal.timeout(800) });
+    if (res.ok) { const rows = await res.json(); team.available = Array.isArray(rows); }
+  } catch { /* platform not running → unavailable */ }
+  stores.push(team);
+  return { stores };
 }

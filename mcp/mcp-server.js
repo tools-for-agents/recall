@@ -12,19 +12,19 @@ const PROTOCOL = '2024-11-05';
 const tools = [
   {
     name: 'recall_search',
-    description: 'Recall everything relevant to a query across ALL your knowledge at once: your second brain (cortex notes), your reading history (scout pages) and your code (lens). Returns one ranked, token-budgeted briefing with each hit tagged by source. Use this FIRST when starting a task — it loads the right context so you don\'t re-derive what you already know or re-read the web.',
+    description: 'Recall everything relevant to a query across ALL your knowledge at once: your second brain (cortex notes), the team\'s shared memory (agent-hq), your reading history (scout pages) and your code (lens). Returns one ranked, token-budgeted briefing with each hit tagged by source. Use this FIRST when starting a task — it loads the right context so you don\'t re-derive what you already know or re-read the web.',
     inputSchema: { type: 'object', properties: {
       query: { type: 'string' },
       k: { type: 'integer', description: 'Max total results (default 10)' },
       max_tokens: { type: 'integer', description: 'Token budget for the briefing (default 2000)' },
-      sources: { type: 'array', items: { type: 'string', enum: ['brain', 'reading', 'code'] },
+      sources: { type: 'array', items: { type: 'string', enum: ['brain', 'team', 'reading', 'code'] },
         description: 'Restrict to specific stores (default: all available)' },
     }, required: ['query'] },
     run: (a) => r.recall(a.query, a),
   },
   {
     name: 'recall_status',
-    description: 'Show which knowledge stores are available and how many entries each holds (cortex / scout / lens).',
+    description: 'Show which knowledge stores are available and how many entries each holds (cortex / agent-hq / scout / lens).',
     inputSchema: { type: 'object', properties: {} },
     run: () => r.status(),
   },
