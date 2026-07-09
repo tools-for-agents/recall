@@ -1,0 +1,10 @@
+{
+  "name": "recall-agent",
+  "version": "0.1.0",
+  "description": "Federated, token-budgeted recall across an agent's knowledge stores — cortex (second brain), scout (reading) and lens (code) — in one query. Zero dependencies.",
+  "type": "module",
+  "bin": { "recall": "src/cli.js" },
+  "engines": { "node": ">=22" },
+  "scripts": { "mcp": "node mcp/mcp-server.js" },
+  "license": "MIT"
+}
