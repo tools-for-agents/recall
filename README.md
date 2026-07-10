@@ -52,6 +52,7 @@ A zero-dependency **unified-briefing console**: one query, one interleaved brief
 - **The convergence** — the four sources (🧠 cortex, 🛰️ agent-hq, 🧭 scout, 🔎 lens) each keep their own colour, and every result card is tagged and tinted by where it came from, so the round-robin interleave is legible at a glance.
 - **Live sources rail** — which stores are available and how many entries each holds; click a source to include/exclude it from the query (`--only` under the hood).
 - **Source breakdown** — the briefing header shows how the result is composed: a proportional bar + a per-source count (`🧠 4 · 🛰️ 4 · 🧭 3 · 🔎 3`), each in its store's colour, so you can see the federation balance at a glance.
+- **Keyboard-navigable** — after a search, **↑/↓** move a selection through the hits and **Enter** opens the selected one in its owning tool (the deep-link); **Esc** returns to the search box. Never leave the keyboard between "recall it" and "open it".
 - **Token budget** — the briefing fills to a budget, shown as you search.
 - **Recent queries** — every search you run is remembered (in the browser only); focus the empty search box and a **recent queries** strip drops down — click a chip to re-run it instantly, or **clear ✕** to forget them. Incremental typing collapses to the final query, so the list stays the eight distinct things you actually looked for.
 - **Light or dark** — a ◐ toggle (remembered per browser; follows your OS preference by default); the four source colours stay legible on either ground.
