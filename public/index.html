@@ -125,6 +125,15 @@
   .brief-head .save-btn { margin-left:8px; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
   .brief-head .save-btn:hover { color:var(--accent); border-color:var(--accent); }
   .brief-head .save-btn.on { color:var(--accent); border-color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  .brief-head .group-btn { margin-left:8px; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
+  .brief-head .group-btn:hover { color:var(--accent); border-color:var(--accent); }
+  .brief-head .group-btn.on { color:var(--accent); border-color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  /* grouped-by-source layout */
+  .hit-group { margin-bottom:22px; }
+  .hit-group:last-child { margin-bottom:0; }
+  .grp-h { display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--c); font-weight:600; margin:0 0 11px; padding-bottom:7px; border-bottom:1px solid color-mix(in srgb, var(--c) 32%, var(--line)); }
+  .grp-h .grp-tool { letter-spacing:.4px; }
+  .grp-h .grp-n { margin-left:auto; font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:0 8px; font-weight:500; }
   /* ── Saved searches (rail, persisted) ── */
   .rail-saved-label { margin-top:14px; }
   .rail-saved-label[hidden] { display:none; }
@@ -259,6 +268,10 @@ const SRC = {
   code:    { glyph: '🔎', tool: 'lens',     label: 'code',    color: 'var(--code)' },
 };
 const ORDER = ['brain', 'team', 'reading', 'code'];
+// Briefing layout: interleaved (round-robin, default) or grouped under per-source headers.
+const GKEY = 'recall:grouped';
+let grouped = (() => { try { return localStorage.getItem(GKEY) === '1'; } catch { return false; } })();
+function saveGrouped() { try { localStorage.setItem(GKEY, grouped ? '1' : '0'); } catch {} }
 
 let STATUS = null;
 const enabled = new Set(ORDER);      // which sources to query (available ones)
@@ -433,12 +446,26 @@ async function runSearch(q) {
     return;
   }
   $('#budget').innerHTML = `<b>${r.count}</b> hits · <b>~${r.tokens}</b> / 2.6k tok`;
-  lastBrief = { q, r };   // keep the raw briefing so it can be copied as markdown
-  b.innerHTML = `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
-      <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
-      ${srcBreakdown(r.by_source)}<button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
-    r.results.map(hitCard).join('');
+  lastBrief = { q, r };   // keep the raw briefing so it can be copied / re-laid-out
+  b.innerHTML = briefingHtml(q, r);
   selHit = -1;   // reset keyboard selection for the new briefing
+}
+// The hit list — interleaved (default) or clustered under per-source headers so you
+// can read all of one store's results together. Same hits, re-laid-out.
+function hitsHtml(r) {
+  if (!grouped) return r.results.map(hitCard).join('');
+  return ORDER.filter((s) => r.results.some((x) => x.source === s)).map((s) => {
+    const items = r.results.filter((x) => x.source === s), meta = SRC[s];
+    return `<div class="hit-group" style="--c:${meta.color}">
+      <div class="grp-h"><span class="grp-glyph">${meta.glyph}</span> <span class="grp-tool">${esc(meta.tool)}</span> <span class="grp-n">${items.length}</span></div>
+      ${items.map(hitCard).join('')}</div>`;
+  }).join('');
+}
+function briefingHtml(q, r) {
+  return `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
+      <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
+      ${srcBreakdown(r.by_source)}<button class="group-btn${grouped ? ' on' : ''}" data-group title="${grouped ? 'Grouped by source — click for interleave' : 'Group hits by source'}" aria-label="Toggle group by source">${grouped ? '⊟ grouped' : '⊞ group'}</button><button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
+    hitsHtml(r);
 }
 // Assemble the current briefing as a markdown list — paste it into a PR, note or message.
 function briefingMarkdown() {
@@ -515,6 +542,8 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && selHit >= 0) { e.preventDefault(); selectHit(-1); $('#q').focus(); }
 });
 $('#briefing').addEventListener('click', (e) => {   // click a card to select it (the ↗ link still opens directly)
+  const gb = e.target.closest('[data-group]');
+  if (gb) { grouped = !grouped; saveGrouped(); if (lastBrief) { $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; } return; }
   const sv = e.target.closest('[data-save]');
   if (sv) { toggleSaved(sv.dataset.save); return; }   // toggleSaved → renderSaved → syncSaveBtn updates this star
   const cp = e.target.closest('[data-copymd]'); if (cp) { copyBriefing(cp); return; }
