@@ -36,7 +36,21 @@ recall "auth token refresh design"            # everything you know about it
 recall "kafka retries" -k 12 --tokens 3000    # more hits, bigger budget
 recall "graph traversal" --only brain,code    # restrict to some stores
 recall status                                 # which stores are available + counts
+recall serve                                  # unified-briefing web console → :7980
 ```
+
+## Web console (`recall serve`)
+
+```bash
+recall serve                                  # → http://localhost:7980  (--port to change)
+```
+
+A zero-dependency **unified-briefing console**: one query, one interleaved briefing across every store — visibly converged.
+
+- **The convergence** — the four sources (🧠 cortex, 🛰️ agent-hq, 🧭 scout, 🔎 lens) each keep their own colour, and every result card is tagged and tinted by where it came from, so the round-robin interleave is legible at a glance.
+- **Live sources rail** — which stores are available and how many entries each holds; click a source to include/exclude it from the query (`--only` under the hood).
+- **Token budget** — the briefing fills to a budget, shown as you search.
+- Read-only; missing stores and an offline agent-hq degrade silently, exactly like the CLI. Point it at your stores with `CORTEX_VAULT` / `SCOUT_DB` / `LENS_DB` / `HQ_URL`.
 
 ## MCP server (for agents)
 

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>recall · unified briefing</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='84'>◎</text></svg>" />
+<style>
+  :root {
+    --bg:#0b0d12; --panel:#12151d; --panel-2:#181c26; --line:#242a37; --line-2:#323a4c;
+    --txt:#e6e9f0; --muted:#8b93a6; --faint:#5a6274;
+    --accent:#ec4899; --accent-dim:#7c2d52; --accent-glow:rgba(236,72,153,.5);
+    /* the four converging sources */
+    --brain:#a78bfa; --team:#6ea8fe; --reading:#e0a24e; --code:#4fd6be;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SFMono-Regular","JetBrains Mono",Menlo,monospace;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:
+      radial-gradient(900px 500px at 82% -12%, rgba(236,72,153,.08), transparent 60%),
+      radial-gradient(700px 500px at 10% 110%, rgba(110,168,254,.06), transparent 60%),
+      var(--bg);
+    color:var(--txt); font-family:var(--sans); font-size:13.5px; height:100vh; overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+    display:grid; grid-template-rows:auto 1fr; grid-template-columns:260px 1fr;
+    grid-template-areas:"top top" "rail main";
+  }
+
+  /* ── Top bar ─────────────────────────────────────────────── */
+  .top { grid-area:top; display:flex; align-items:center; gap:18px; padding:0 18px; height:60px; border-bottom:1px solid var(--line); background:rgba(11,13,18,.7); backdrop-filter:blur(8px); }
+  .brand { display:flex; align-items:center; gap:11px; white-space:nowrap; }
+  .brand .mk { font-size:23px; color:var(--accent); text-shadow:0 0 16px var(--accent-glow); }
+  .brand b { font-size:16px; letter-spacing:.3px; }
+  .brand .sub { font-family:var(--mono); font-size:10.5px; color:var(--muted); letter-spacing:.3px; }
+  .qwrap { flex:1; max-width:680px; margin:0 auto; position:relative; }
+  .qfield { display:flex; align-items:center; gap:11px; background:var(--panel); border:1px solid var(--line); border-radius:11px; padding:0 14px; height:40px; transition:border-color .15s, box-shadow .15s; }
+  .qfield:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px rgba(236,72,153,.12); }
+  .qfield .ic { color:var(--accent); font-size:15px; }
+  .qfield input { flex:1; background:none; border:none; outline:none; color:var(--txt); font-size:14px; }
+  .qfield input::placeholder { color:var(--faint); }
+  .qfield .kbd { font-family:var(--mono); font-size:10px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; }
+  .budget { font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; min-width:120px; text-align:right; }
+  .budget b { color:var(--accent); font-variant-numeric:tabular-nums; }
+
+  /* ── Sources rail ────────────────────────────────────────── */
+  .rail { grid-area:rail; background:var(--panel); border-right:1px solid var(--line); overflow:auto; padding:16px 12px; }
+  .rail-label { font-family:var(--mono); font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:1.4px; padding:2px 6px 10px; display:flex; justify-content:space-between; }
+  .src { display:flex; align-items:center; gap:11px; padding:11px 12px; border:1px solid var(--line); border-radius:11px; margin-bottom:8px; cursor:pointer; transition:border-color .14s, background .14s, opacity .14s; position:relative; overflow:hidden; }
+  .src::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--c); opacity:.85; }
+  .src:hover { background:var(--panel-2); }
+  .src.off { opacity:.42; }
+  .src.dead { opacity:.34; cursor:not-allowed; }
+  .src .g { font-size:20px; filter:drop-shadow(0 0 8px var(--c)); }
+  .src .tx { flex:1; min-width:0; }
+  .src .nm { font-weight:600; font-size:13px; }
+  .src .nm .tool { color:var(--c); }
+  .src .st { font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-top:2px; }
+  .src .dot { width:8px; height:8px; border-radius:50%; background:var(--c); box-shadow:0 0 8px var(--c); }
+  .src.dead .dot { background:var(--faint); box-shadow:none; }
+  .rail-foot { font-family:var(--mono); font-size:10.5px; color:var(--faint); text-align:center; padding:12px 6px 4px; line-height:1.5; }
+
+  /* ── Main / briefing ─────────────────────────────────────── */
+  .main { grid-area:main; overflow:auto; position:relative; }
+  .briefing { max-width:820px; margin:0 auto; padding:22px 26px 80px; }
+  .brief-head { display:flex; align-items:baseline; gap:12px; font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .brief-head b { color:var(--txt); }
+  .brief-head .srcs { margin-left:auto; letter-spacing:2px; }
+
+  .hit { position:relative; background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--c); border-radius:11px; padding:14px 16px; margin-bottom:11px; animation:rise .28s ease both; }
+  @keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  .hit .hh { display:flex; align-items:center; gap:9px; margin-bottom:7px; }
+  .hit .chip { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px; font-weight:600; color:var(--c); background:color-mix(in srgb, var(--c) 14%, transparent); border:1px solid color-mix(in srgb, var(--c) 40%, transparent); border-radius:20px; padding:2px 9px; }
+  .hit .title { font-weight:650; font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hit .tok { margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--muted); white-space:nowrap; }
+  .hit .ref { font-family:var(--mono); font-size:11px; color:var(--faint); margin-bottom:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hit .ex { font-size:13px; line-height:1.6; color:var(--muted); }
+  .hit .ex mark { background:color-mix(in srgb, var(--c) 26%, transparent); color:var(--txt); border-radius:2px; padding:0 2px; }
+
+  /* ── Welcome / convergence hero ──────────────────────────── */
+  .welcome { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; }
+  .converge { width:260px; height:200px; margin-bottom:6px; }
+  .converge line { stroke-dasharray:5 7; animation:flow 2.6s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset:-24; } }
+  @media (prefers-reduced-motion: reduce) { .converge line { animation:none; } .hit { animation:none; } }
+  .converge .core { fill:var(--accent); filter:drop-shadow(0 0 10px var(--accent-glow)); }
+  .welcome h2 { font-size:24px; font-weight:650; margin:6px 0 8px; letter-spacing:-.3px; }
+  .welcome p { color:var(--muted); max-width:440px; font-size:14px; line-height:1.6; }
+  .welcome .legend { display:flex; gap:16px; margin-top:20px; flex-wrap:wrap; justify-content:center; font-family:var(--mono); font-size:11.5px; }
+  .welcome .legend span { display:inline-flex; align-items:center; gap:6px; color:var(--muted); }
+  .welcome .legend i { width:9px; height:9px; border-radius:50%; box-shadow:0 0 7px currentColor; }
+  .empty2 { color:var(--muted); text-align:center; padding:40px; font-size:13.5px; }
+
+  ::-webkit-scrollbar { width:10px; }
+  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:8px; }
+  @media (max-width:780px) { body { grid-template-columns:0 1fr; } .rail { display:none; } .qwrap { max-width:none; } }
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="mk">◎</span><div><b>recall</b> <span class="sub">unified briefing</span></div></div>
+    <div class="qwrap">
+      <div class="qfield"><span class="ic">⌕</span><input id="q" placeholder="one query across all your memory…" autocomplete="off" spellcheck="false" /><span class="kbd">/</span></div>
+    </div>
+    <div class="budget" id="budget"></div>
+  </header>
+
+  <aside class="rail">
+    <div class="rail-label"><span>sources</span><span id="srcCount"></span></div>
+    <div id="sources"></div>
+    <div class="rail-foot">round-robin interleave<br />🧠 brain → 🛰️ team → 🧭 reading → 🔎 code</div>
+  </aside>
+
+  <main class="main">
+    <div class="briefing" id="briefing" hidden></div>
+    <div class="welcome" id="welcome">
+      <svg class="converge" viewBox="0 0 260 200" id="convergeSvg" aria-hidden="true">
+        <line x1="34" y1="34" x2="130" y2="100" stroke="var(--brain)" stroke-width="2" />
+        <line x1="226" y1="34" x2="130" y2="100" stroke="var(--team)" stroke-width="2" />
+        <line x1="34" y1="166" x2="130" y2="100" stroke="var(--reading)" stroke-width="2" />
+        <line x1="226" y1="166" x2="130" y2="100" stroke="var(--code)" stroke-width="2" />
+        <text x="34" y="30" text-anchor="middle" font-size="20">🧠</text>
+        <text x="226" y="30" text-anchor="middle" font-size="20">🛰️</text>
+        <text x="34" y="184" text-anchor="middle" font-size="20">🧭</text>
+        <text x="226" y="184" text-anchor="middle" font-size="20">🔎</text>
+        <circle class="core" cx="130" cy="100" r="13" />
+        <text x="130" y="106" text-anchor="middle" font-size="15" fill="#0b0d12">◎</text>
+      </svg>
+      <h2>One query. All your memory.</h2>
+      <p>recall federates a single search across every store an agent keeps — your second brain, the team's memory, everything you've read, and your code — and returns one token-budgeted briefing.</p>
+      <div class="legend">
+        <span><i style="color:var(--brain)"></i>🧠 cortex · brain</span>
+        <span><i style="color:var(--team)"></i>🛰️ agent-hq · team</span>
+        <span><i style="color:var(--reading)"></i>🧭 scout · reading</span>
+        <span><i style="color:var(--code)"></i>🔎 lens · code</span>
+      </div>
+    </div>
+  </main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const api = (p) => fetch(p).then((r) => r.json());
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+const SRC = {
+  brain:   { glyph: '🧠', tool: 'cortex',   label: 'brain',   color: 'var(--brain)' },
+  team:    { glyph: '🛰️', tool: 'agent-hq', label: 'team',    color: 'var(--team)' },
+  reading: { glyph: '🧭', tool: 'scout',    label: 'reading', color: 'var(--reading)' },
+  code:    { glyph: '🔎', tool: 'lens',     label: 'code',    color: 'var(--code)' },
+};
+const ORDER = ['brain', 'team', 'reading', 'code'];
+
+let STATUS = null;
+const enabled = new Set(ORDER);      // which sources to query (available ones)
+
+// ── Boot ─────────────────────────────────────────────────────────────────────
+(async () => {
+  STATUS = await api('/api/status');
+  // only auto-enable available stores
+  for (const s of STATUS.stores) if (!s.available) enabled.delete(s.store);
+  renderSources();
+})();
+
+function renderSources() {
+  const byStore = Object.fromEntries(STATUS.stores.map((s) => [s.store, s]));
+  const live = STATUS.stores.filter((s) => s.available).length;
+  $('#srcCount').textContent = live + ' / 4 live';
+  $('#sources').innerHTML = ORDER.map((store) => {
+    const meta = SRC[store]; const s = byStore[store] || {};
+    const dead = !s.available; const off = !dead && !enabled.has(store);
+    return `<div class="src ${dead ? 'dead' : ''} ${off ? 'off' : ''}" data-store="${store}" style="--c:${meta.color}">
+      <span class="g">${meta.glyph}</span>
+      <div class="tx">
+        <div class="nm"><span class="tool">${meta.tool}</span> · ${meta.label}</div>
+        <div class="st">${dead ? 'offline' : (s.entries != null ? s.entries + ' entries' : 'ready')}</div>
+      </div>
+      <span class="dot"></span>
+    </div>`;
+  }).join('');
+}
+$('#sources').addEventListener('click', (e) => {
+  const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
+  const store = el.dataset.store;
+  if (enabled.has(store)) enabled.delete(store); else enabled.add(store);
+  renderSources();
+  if ($('#q').value.trim()) runSearch($('#q').value.trim());
+});
+
+// ── Search ───────────────────────────────────────────────────────────────────
+let timer;
+$('#q').addEventListener('input', (e) => {
+  clearTimeout(timer);
+  const q = e.target.value.trim();
+  if (!q) { showWelcome(); return; }
+  timer = setTimeout(() => runSearch(q), 190);
+});
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; showWelcome(); e.target.blur(); } });
+
+function showWelcome() {
+  $('#briefing').hidden = true; $('#welcome').style.display = '';
+  $('#budget').textContent = '';
+}
+
+async function runSearch(q) {
+  const live = STATUS.stores.filter((s) => s.available).map((s) => s.store);
+  const only = live.filter((s) => enabled.has(s));
+  const params = new URLSearchParams({ q, k: '14', tokens: '2600' });
+  if (only.length && only.length < live.length) params.set('only', only.join(','));
+  const r = await api('/api/search?' + params.toString());
+  $('#welcome').style.display = 'none';
+  const b = $('#briefing'); b.hidden = false;
+  if (!r.count) {
+    $('#budget').textContent = '';
+    b.innerHTML = `<div class="empty2">No matches for “${esc(q)}” across ${only.length || live.length} store${(only.length || live.length) === 1 ? '' : 's'}.</div>`;
+    return;
+  }
+  $('#budget').innerHTML = `<b>${r.count}</b> hits · <b>~${r.tokens}</b> / 2.6k tok`;
+  const searched = (r.searched || []).map((s) => SRC[s] ? SRC[s].glyph : '').join(' ');
+  b.innerHTML = `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
+      <span class="srcs">${searched}</span></div>` +
+    r.results.map(hitCard).join('');
+}
+function hitCard(x) {
+  const meta = SRC[x.source] || { glyph: '•', tool: x.source, label: x.source, color: 'var(--muted)' };
+  return `<div class="hit" style="--c:${meta.color}">
+    <div class="hh">
+      <span class="chip">${meta.glyph} ${meta.tool}</span>
+      <span class="title">${esc(x.title || x.ref)}</span>
+      <span class="tok">~${x.tokens} tok</span>
+    </div>
+    <div class="ref">${esc(x.meta ? x.meta + ' · ' : '')}${esc(x.ref)}</div>
+    <div class="ex">${markExcerpt(x.excerpt)}</div>
+  </div>`;
+}
+const markExcerpt = (s) => esc(s).replaceAll('⟦', '<mark>').replaceAll('⟧', '</mark>');
+
+// "/" focuses search
+addEventListener('keydown', (e) => { if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#q').focus(); } });
+</script>
+</body>
+</html>

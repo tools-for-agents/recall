@@ -2,10 +2,11 @@
 // recall CLI — one query across your whole memory (cortex + scout + lens).
 //   recall "<query>" [-k 10] [--tokens 2000] [--only brain,code]
 //   recall status
+//   recall serve [--port 7980]
 import * as r from './core.js';
 
 const [, , cmd, ...rest] = process.argv;
-const VALUE = new Set(['-k', '--tokens', '--only']);
+const VALUE = new Set(['-k', '--tokens', '--only', '--port']);
 const positionals = []; const flags = {};
 for (let i = 0; i < rest.length; i++) {
   const a = rest[i];
@@ -19,6 +20,9 @@ const SIGIL = { brain: '🧠', team: '🛰️', reading: '🧭', code: '🔎' };
 try {
   if (cmd === 'status') {
     out(await r.status());
+  } else if (cmd === 'serve') {
+    const { serve } = await import('./server.js');
+    serve({ port: +(flags['--port'] || process.env.RECALL_PORT || 7980) });
   } else if (cmd && cmd !== 'help' && cmd !== '--help') {
     const query = [cmd, ...positionals].join(' ');
     const res = await r.recall(query, { k: +(flags['-k'] || 10), max_tokens: +(flags['--tokens'] || 2000),
