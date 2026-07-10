@@ -122,6 +122,22 @@
   .brief-head .kbd-hint { font-family:var(--mono); font-size:9.5px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; letter-spacing:1px; white-space:nowrap; }
   .brief-head .copy-md { margin-left:10px; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
   .brief-head .copy-md:hover, .brief-head .copy-md.ok { color:var(--accent); border-color:var(--accent); }
+  .brief-head .save-btn { margin-left:8px; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
+  .brief-head .save-btn:hover { color:var(--accent); border-color:var(--accent); }
+  .brief-head .save-btn.on { color:var(--accent); border-color:var(--accent); background:color-mix(in srgb, var(--accent) 12%, transparent); }
+  /* ── Saved searches (rail, persisted) ── */
+  .rail-saved-label { margin-top:14px; }
+  .rail-saved-label[hidden] { display:none; }
+  .rail-saved-label .svclr { cursor:pointer; color:var(--faint); background:none; border:none; font-family:var(--mono); font-size:9px; letter-spacing:1px; text-transform:uppercase; padding:0; }
+  .rail-saved-label .svclr:hover { color:var(--accent); }
+  #saved { display:flex; flex-direction:column; gap:5px; }
+  .svd { display:flex; align-items:center; gap:7px; padding:6px 9px; border-radius:9px; background:var(--panel); border:1px solid var(--line); cursor:pointer; font-size:12px; transition:border-color .12s; }
+  .svd:hover { border-color:var(--accent); }
+  .svd .svg2 { color:var(--accent); font-size:11px; flex:none; }
+  .svd .qt { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--txt); }
+  .svd .svx { flex:none; background:none; border:none; color:var(--faint); cursor:pointer; font-size:12px; line-height:1; padding:0 2px; opacity:0; transition:opacity .12s, color .12s; }
+  .svd:hover .svx, .svd:focus-within .svx { opacity:1; }
+  .svd .svx:hover { color:var(--accent); }
   .brief-head .srcbreak { margin-left:auto; align-self:center; display:flex; align-items:center; gap:11px; }
   .srcbar { display:flex; width:92px; height:7px; border-radius:4px; overflow:hidden; background:var(--panel-2); border:1px solid var(--line); }
   .srcbar i { display:block; min-width:2px; }
@@ -187,6 +203,8 @@
   <aside class="rail">
     <div class="rail-label"><span>sources</span><span id="srcCount"></span></div>
     <div id="sources"></div>
+    <div class="rail-label rail-saved-label" id="savedLabel" hidden><span>saved searches</span><button class="svclr" data-clearsaved title="Clear saved searches">clear ✕</button></div>
+    <div id="saved"></div>
     <div class="rail-foot">round-robin interleave<br />🧠 brain → 🛰️ team → 🧭 reading → 🔎 code</div>
   </aside>
 
@@ -272,6 +290,55 @@ function renderRecent() {
 }
 function showRecent() { if (!recent.length) { hideRecent(); return; } renderRecent(); $('#recent').hidden = false; }
 function hideRecent() { $('#recent').hidden = true; }
+
+// ── Saved searches (persisted favourites, distinct from ephemeral recents) ────
+const SKEY = 'recall:saved', SCAP = 24;
+let saved = loadSaved();             // declared before any handler runs (avoid TDZ)
+function loadSaved() {
+  try { const a = JSON.parse(localStorage.getItem(SKEY)); return Array.isArray(a) ? a.filter((x) => typeof x === 'string').slice(0, SCAP) : []; }
+  catch { return []; }
+}
+function persistSaved() { try { localStorage.setItem(SKEY, JSON.stringify(saved)); } catch {} }
+function isSaved(q) { const low = (q || '').trim().toLowerCase(); return !!low && saved.some((x) => x.toLowerCase() === low); }
+function toggleSaved(q) {
+  q = (q || '').trim(); if (!q) return;
+  const low = q.toLowerCase();
+  saved = isSaved(q) ? saved.filter((x) => x.toLowerCase() !== low) : [q, ...saved.filter((x) => x.toLowerCase() !== low)].slice(0, SCAP);
+  persistSaved(); renderSaved();
+}
+function removeSaved(q) { const low = (q || '').toLowerCase(); saved = saved.filter((x) => x.toLowerCase() !== low); persistSaved(); renderSaved(); }
+function renderSaved() {
+  const box = $('#saved'), label = $('#savedLabel');
+  if (!saved.length) { box.innerHTML = ''; label.hidden = true; }
+  else {
+    label.hidden = false;
+    box.innerHTML = saved.map((q) => `<div class="svd" data-q="${esc(q)}" title="${esc(q)}" tabindex="0" role="button" aria-label="Run saved search: ${esc(q)}">
+      <span class="svg2" aria-hidden="true">★</span><span class="qt">${esc(q)}</span>
+      <button class="svx" data-del="${esc(q)}" title="Remove saved search" aria-label="Remove saved search">✕</button></div>`).join('');
+  }
+  syncSaveBtn();   // keep the briefing's ☆/★ button in sync with any change (rail remove, clear, toggle)
+}
+// Reflect the current saved-state on the visible briefing star (if any).
+function syncSaveBtn() {
+  const btn = document.querySelector('.save-btn[data-save]');
+  if (!btn) return;
+  const on = isSaved(btn.dataset.save);
+  btn.classList.toggle('on', on);
+  btn.textContent = on ? '★ saved' : '☆ save';
+  btn.title = on ? 'Saved — click to remove' : 'Save this search';
+}
+function runSaved(q) { $('#q').value = q; hideRecent(); runSearch(q); }
+$('#saved').addEventListener('click', (e) => {
+  const del = e.target.closest('[data-del]'); if (del) { e.stopPropagation(); removeSaved(del.dataset.del); return; }
+  const row = e.target.closest('.svd'); if (row) runSaved(row.dataset.q);
+});
+$('#saved').addEventListener('keydown', (e) => {   // keyboard-operable saved chips
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const row = e.target.closest('.svd'); if (!row) return;
+  e.preventDefault(); runSaved(row.dataset.q);
+});
+$('#savedLabel').addEventListener('click', (e) => { if (e.target.closest('[data-clearsaved]')) { saved = []; persistSaved(); renderSaved(); } });
+renderSaved();   // saved searches are client-side only — render immediately, independent of store status
 $('#recent').addEventListener('click', (e) => {
   if (e.target.closest('[data-clear]')) { recent = []; saveRecent(); hideRecent(); return; }
   const chip = e.target.closest('[data-q]'); if (!chip) return;
@@ -369,7 +436,7 @@ async function runSearch(q) {
   lastBrief = { q, r };   // keep the raw briefing so it can be copied as markdown
   b.innerHTML = `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
       <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
-      ${srcBreakdown(r.by_source)}<button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
+      ${srcBreakdown(r.by_source)}<button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
     r.results.map(hitCard).join('');
   selHit = -1;   // reset keyboard selection for the new briefing
 }
@@ -448,6 +515,8 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && selHit >= 0) { e.preventDefault(); selectHit(-1); $('#q').focus(); }
 });
 $('#briefing').addEventListener('click', (e) => {   // click a card to select it (the ↗ link still opens directly)
+  const sv = e.target.closest('[data-save]');
+  if (sv) { toggleSaved(sv.dataset.save); return; }   // toggleSaved → renderSaved → syncSaveBtn updates this star
   const cp = e.target.closest('[data-copymd]'); if (cp) { copyBriefing(cp); return; }
   if (e.target.closest('a.open')) return;
   const hit = e.target.closest('.hit'); if (hit) selectHit(hitEls().indexOf(hit));
