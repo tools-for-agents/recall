@@ -41,6 +41,8 @@ recall serve                                  # unified-briefing web console →
 
 ## Web console (`recall serve`)
 
+![recall serve — the unified briefing console: one query interleaved across all four stores, each hit linking into its owning tool](docs/web-view.png)
+
 ```bash
 recall serve                                  # → http://localhost:7980  (--port to change)
 ```
