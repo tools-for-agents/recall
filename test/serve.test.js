@@ -44,6 +44,13 @@ test('serve: status, federated search, and the stats summary', async () => {
     assert.ok(r.results.some((x) => x.ref === 'rag' && x.source === 'brain'), 'returns the brain note');
     assert.ok(r.tokens <= 2600, 'respects the token budget');
 
+    // by_source: the per-source composition of the briefing (drives the header breakdown)
+    const sum = Object.values(r.by_source).reduce((a, n) => a + n, 0);
+    assert.equal(sum, r.count, 'by_source counts sum to the total result count');
+    for (const [src, n] of Object.entries(r.by_source)) {
+      assert.equal(r.results.filter((x) => x.source === src).length, n, `by_source[${src}] matches the results from that store`);
+    }
+
     const only = await fetch(base + '/api/search?q=retrieval&only=reading').then((res) => res.json());
     assert.ok(!only.searched.includes('brain'), 'only= restricts which stores are queried');
 

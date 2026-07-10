@@ -121,7 +121,11 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
     }
     if (!progressed) break;
   }
-  return { query, searched, count: results.length, tokens, results };
+  // per-source breakdown of what actually made it into the briefing — so the UI
+  // can show how the federated result is composed (e.g. 4 brain · 3 code · 2 reading).
+  const by_source = {};
+  for (const r of results) by_source[r.source] = (by_source[r.source] || 0) + 1;
+  return { query, searched, count: results.length, tokens, results, by_source };
 }
 
 // ── which stores are available right now ──────────────────────────────────────
