@@ -77,6 +77,11 @@
   .hit .ref { font-family:var(--mono); font-size:11px; color:var(--faint); margin-bottom:8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hit .ex { font-size:13px; line-height:1.6; color:var(--muted); }
   .hit .ex mark { background:color-mix(in srgb, var(--c) 26%, transparent); color:var(--txt); border-radius:2px; padding:0 2px; }
+  .hit .hit-foot { margin-top:11px; display:flex; }
+  .hit .open { font-family:var(--mono); font-size:11px; color:var(--c); text-decoration:none;
+    border:1px solid color-mix(in srgb, var(--c) 40%, transparent); border-radius:7px; padding:4px 11px;
+    background:color-mix(in srgb, var(--c) 10%, transparent); transition:background .13s; }
+  .hit .open:hover { background:color-mix(in srgb, var(--c) 22%, transparent); }
 
   /* ── Welcome / convergence hero ──────────────────────────── */
   .welcome { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; }
@@ -153,14 +158,27 @@ const ORDER = ['brain', 'team', 'reading', 'code'];
 
 let STATUS = null;
 const enabled = new Set(ORDER);      // which sources to query (available ones)
+const WEB = {};                      // store -> its web view base url (for cross-tool links)
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 (async () => {
   STATUS = await api('/api/status');
-  // only auto-enable available stores
-  for (const s of STATUS.stores) if (!s.available) enabled.delete(s.store);
+  for (const s of STATUS.stores) {
+    if (!s.available) enabled.delete(s.store);   // only auto-enable available stores
+    if (s.web) WEB[s.store] = s.web.replace(/\/$/, '');
+  }
   renderSources();
 })();
+
+// Build a deep-link that opens a briefing hit in its owning tool's web view.
+// Each tool reads its item from the URL hash (scout: #<url>, lens: #<path>:<line>,
+// cortex: #<slug>, agent-hq: #memory=<id>).
+function linkFor(source, ref) {
+  const base = WEB[source];
+  if (!base || ref == null) return null;
+  const frag = source === 'team' ? 'memory=' + encodeURIComponent(ref) : encodeURIComponent(ref);
+  return base + '/#' + frag;
+}
 
 function renderSources() {
   const byStore = Object.fromEntries(STATUS.stores.map((s) => [s.store, s]));
@@ -223,6 +241,8 @@ async function runSearch(q) {
 }
 function hitCard(x) {
   const meta = SRC[x.source] || { glyph: '•', tool: x.source, label: x.source, color: 'var(--muted)' };
+  const href = linkFor(x.source, x.ref);
+  const open = href ? `<a class="open" href="${esc(href)}" target="_blank" rel="noopener" title="Open in ${esc(meta.tool)}">open in ${esc(meta.tool)} ↗</a>` : '';
   return `<div class="hit" style="--c:${meta.color}">
     <div class="hh">
       <span class="chip">${meta.glyph} ${meta.tool}</span>
@@ -231,6 +251,7 @@ function hitCard(x) {
     </div>
     <div class="ref">${esc(x.meta ? x.meta + ' · ' : '')}${esc(x.ref)}</div>
     <div class="ex">${markExcerpt(x.excerpt)}</div>
+    ${open ? `<div class="hit-foot">${open}</div>` : ''}
   </div>`;
 }
 const markExcerpt = (s) => esc(s).replaceAll('⟦', '<mark>').replaceAll('⟧', '</mark>');

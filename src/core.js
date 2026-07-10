@@ -15,6 +15,7 @@ const STORES = [
   {
     name: 'brain', label: 'cortex',
     db: () => env('RECALL_CORTEX_DB') || (env('CORTEX_VAULT') ? `${env('CORTEX_VAULT')}/.cortex/index.db` : './vault/.cortex/index.db'),
+    web: () => env('RECALL_CORTEX_URL') || 'http://localhost:7800',
     sql: `SELECT n.title AS title, n.slug AS ref, n.type AS meta,
                  snippet(notes_fts, 3, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(notes_fts) AS score
           FROM notes_fts JOIN notes n ON n.slug = notes_fts.slug
@@ -23,6 +24,7 @@ const STORES = [
   {
     name: 'reading', label: 'scout',
     db: () => env('RECALL_SCOUT_DB') || env('SCOUT_DB') || './.scout/cache.db',
+    web: () => env('RECALL_SCOUT_URL') || 'http://localhost:7950',
     sql: `SELECT p.title AS title, p.url AS ref, 'web' AS meta,
                  snippet(pages_fts, 2, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(pages_fts) AS score
           FROM pages_fts JOIN pages p ON p.url = pages_fts.url
@@ -31,7 +33,8 @@ const STORES = [
   {
     name: 'code', label: 'lens',
     db: () => env('RECALL_LENS_DB') || env('LENS_DB') || './.lens/index.db',
-    sql: `SELECT path AS title, path || ':' || start AS ref, lang AS meta,
+    web: () => env('RECALL_LENS_URL') || 'http://localhost:7900',
+    sql: `SELECT path AS title, path || ':' || CAST(start AS INTEGER) AS ref, lang AS meta,
                  snippet(chunks, 1, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(chunks) AS score
           FROM chunks WHERE chunks MATCH ? ORDER BY score LIMIT ?`,
   },
@@ -128,9 +131,9 @@ export async function status() {
     const found = existsSync(path);
     let entries = null;
     if (found) { const db = openRO(path); if (db) { try { entries = db.prepare(`SELECT COUNT(*) n FROM ${s.name === 'code' ? 'files' : s.name === 'reading' ? 'pages' : 'notes'}`).get().n; } catch {} db.close(); } }
-    return { store: s.name, tool: s.label, source: path, available: found, entries };
+    return { store: s.name, tool: s.label, source: path, web: s.web(), available: found, entries };
   });
-  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), available: false, entries: null };
+  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };
   try {
     const res = await fetch(`${hqUrl()}/api/memory?limit=1`, { signal: AbortSignal.timeout(800) });
     if (res.ok) { const rows = await res.json(); team.available = Array.isArray(rows); }

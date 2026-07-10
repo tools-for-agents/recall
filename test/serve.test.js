@@ -35,6 +35,9 @@ test('serve: status, federated search, and the stats summary', async () => {
     assert.equal(status.stores.length, 4, 'status reports all four stores');
     assert.equal(status.stores.find((s) => s.store === 'brain').available, true, 'brain is available');
     assert.equal(status.stores.find((s) => s.store === 'reading').available, false, 'absent store is offline');
+    // each store exposes its web-view base url so the console can build cross-tool links
+    assert.ok(status.stores.every((s) => typeof s.web === 'string' && /^https?:\/\//.test(s.web)), 'every store carries a web url');
+    assert.match(status.stores.find((s) => s.store === 'code').web, /7900/, 'lens web url defaults to :7900');
 
     const r = await fetch(base + '/api/search?q=retrieval%20chunks').then((res) => res.json());
     assert.ok(r.searched.includes('brain'), 'search hit the available store');
