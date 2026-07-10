@@ -75,6 +75,25 @@
   .budget { font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; min-width:120px; text-align:right; }
   .budget b { color:var(--accent); font-variant-numeric:tabular-nums; }
 
+  /* ── Recent-queries dropdown (under the search field) ──────── */
+  .recent { position:absolute; top:48px; left:0; right:0; z-index:30; background:var(--panel);
+    border:1px solid var(--line); border-radius:11px; padding:9px 9px 10px;
+    box-shadow:0 16px 40px rgba(0,0,0,.42); }
+  .recent[hidden] { display:none; }
+  .recent .rhead { display:flex; justify-content:space-between; align-items:center;
+    font-family:var(--mono); font-size:9.5px; color:var(--faint); text-transform:uppercase;
+    letter-spacing:1.3px; padding:1px 4px 9px; }
+  .recent .clr { cursor:pointer; color:var(--faint); background:none; border:none;
+    font-family:var(--mono); font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; padding:0; }
+  .recent .clr:hover { color:var(--accent); }
+  .recent .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .recent .chip { display:flex; align-items:center; gap:7px; max-width:100%; font-size:12.5px;
+    color:var(--txt); background:var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    padding:6px 11px; cursor:pointer; transition:border-color .14s, background .14s; }
+  .recent .chip:hover { border-color:var(--accent); background:var(--panel); }
+  .recent .chip .rq { font-size:11px; color:var(--accent); flex:none; }
+  .recent .chip .qt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:230px; }
+
   /* ── Sources rail ────────────────────────────────────────── */
   .rail { grid-area:rail; background:var(--panel); border-right:1px solid var(--line); overflow:auto; padding:16px 12px; }
   .rail-label { font-family:var(--mono); font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:1.4px; padding:2px 6px 10px; display:flex; justify-content:space-between; }
@@ -148,6 +167,7 @@
     <div class="brand"><span class="mk">◎</span><div><b>recall</b> <span class="sub">unified briefing</span></div></div>
     <div class="qwrap">
       <div class="qfield"><span class="ic">⌕</span><input id="q" placeholder="one query across all your memory…" autocomplete="off" spellcheck="false" /><span class="kbd">/</span></div>
+      <div class="recent" id="recent" hidden></div>
     </div>
     <div class="budget" id="budget"></div>
     <button class="theme-btn" id="theme" title="Toggle light / dark" aria-label="Toggle theme">◐</button>
@@ -215,6 +235,39 @@ let STATUS = null;
 const enabled = new Set(ORDER);      // which sources to query (available ones)
 const WEB = {};                      // store -> its web view base url (for cross-tool links)
 
+// ── Recent queries (client-side, localStorage) ───────────────────────────────
+const RKEY = 'recall:recent', RCAP = 8;
+let recent = loadRecent();           // declared before any handler runs (avoid TDZ)
+function loadRecent() {
+  try { const a = JSON.parse(localStorage.getItem(RKEY)); return Array.isArray(a) ? a.filter((x) => typeof x === 'string').slice(0, RCAP) : []; }
+  catch { return []; }
+}
+function saveRecent() { try { localStorage.setItem(RKEY, JSON.stringify(recent)); } catch {} }
+function pushRecent(q) {
+  q = q.trim(); if (!q) return;
+  const low = q.toLowerCase();
+  let rest = recent;
+  // collapse incremental typing: if the newest entry is a prefix of q (or vice-versa), replace it
+  if (rest.length) { const top = rest[0].toLowerCase(); if (top.startsWith(low) || low.startsWith(top)) rest = rest.slice(1); }
+  recent = [q, ...rest.filter((x) => x.toLowerCase() !== low)].slice(0, RCAP);
+  saveRecent();
+}
+function renderRecent() {
+  $('#recent').innerHTML =
+    `<div class="rhead"><span>recent queries</span><button class="clr" data-clear title="Clear recent queries">clear ✕</button></div>
+     <div class="chips">` +
+    recent.map((q) => `<button class="chip" data-q="${esc(q)}" title="${esc(q)}"><span class="rq">↻</span><span class="qt">${esc(q)}</span></button>`).join('') +
+    `</div>`;
+}
+function showRecent() { if (!recent.length) { hideRecent(); return; } renderRecent(); $('#recent').hidden = false; }
+function hideRecent() { $('#recent').hidden = true; }
+$('#recent').addEventListener('click', (e) => {
+  if (e.target.closest('[data-clear]')) { recent = []; saveRecent(); hideRecent(); return; }
+  const chip = e.target.closest('[data-q]'); if (!chip) return;
+  const q = chip.dataset.q;
+  $('#q').value = q; hideRecent(); $('#q').blur(); runSearch(q);
+});
+
 // ── Boot ─────────────────────────────────────────────────────────────────────
 (async () => {
   STATUS = await api('/api/status');
@@ -265,10 +318,13 @@ let timer;
 $('#q').addEventListener('input', (e) => {
   clearTimeout(timer);
   const q = e.target.value.trim();
-  if (!q) { showWelcome(); return; }
+  if (!q) { showWelcome(); showRecent(); return; }
+  hideRecent();
   timer = setTimeout(() => runSearch(q), 190);
 });
-$('#q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; showWelcome(); e.target.blur(); } });
+$('#q').addEventListener('focus', () => { if (!$('#q').value.trim()) showRecent(); });
+$('#q').addEventListener('blur', () => setTimeout(hideRecent, 130));  // delay so a chip click lands first
+$('#q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; showWelcome(); hideRecent(); e.target.blur(); } });
 
 function showWelcome() {
   $('#briefing').hidden = true; $('#welcome').style.display = '';
@@ -276,6 +332,7 @@ function showWelcome() {
 }
 
 async function runSearch(q) {
+  pushRecent(q);   // remember every executed query (prefix-typing collapses to the latest)
   const live = STATUS.stores.filter((s) => s.available).map((s) => s.store);
   const only = live.filter((s) => enabled.has(s));
   const params = new URLSearchParams({ q, k: '14', tokens: '2600' });
