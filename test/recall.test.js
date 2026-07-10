@@ -51,6 +51,24 @@ test('sources filter restricts which stores are queried', async () => {
   assert.ok(!res.searched.includes('brain'));
 });
 
+test('bad numeric args fall back to defaults instead of emptying the briefing', async () => {
+  const good = await r.recall('retrieval chunks');
+  assert.ok(good.count > 0, 'baseline has hits');
+
+  // a non-numeric k (NaN — e.g. from ?k=abc) used to make `results.length < NaN`
+  // always false, returning zero results even with matches
+  for (const bad of [NaN, 0, -5, 'abc', undefined]) {
+    const res = await r.recall('retrieval chunks', { k: bad });
+    assert.equal(res.count, good.count, `k=${String(bad)} recovers the default result count`);
+  }
+  // a non-numeric max_tokens must not collapse the budget to a single hit
+  const tok = await r.recall('retrieval chunks', { max_tokens: 'xyz' });
+  assert.equal(tok.count, good.count, 'bad max_tokens falls back to the default budget');
+  // a huge but valid k is still bounded by the available hits (no hang, no over-return)
+  const big = await r.recall('retrieval chunks', { k: 100000 });
+  assert.equal(big.count, good.count, 'k larger than the corpus just returns everything available');
+});
+
 test('status reports all four stores', async () => {
   const s = await r.status();
   assert.equal(s.stores.length, 4);

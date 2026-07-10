@@ -77,6 +77,12 @@ const ORDER = ['brain', 'team', 'reading', 'code'];
 
 // ── federated recall ───────────────────────────────────────────────────────────
 export async function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
+  // Harden the numeric args: a bad value (NaN from a non-numeric query param,
+  // zero, or negative) must fall back to the default rather than silently
+  // emptying the briefing — `results.length < NaN` is always false, so an
+  // unguarded NaN k returns zero results even when there are matches.
+  k = Number.isFinite(+k) && +k > 0 ? Math.floor(+k) : 10;
+  max_tokens = Number.isFinite(+max_tokens) && +max_tokens > 0 ? Math.floor(+max_tokens) : 2000;
   const m = ftsQuery(query);
   if (!m) return { query, count: 0, tokens: 0, results: [] };
   const wanted = sources && sources.length ? new Set(sources) : null;

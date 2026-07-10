@@ -51,6 +51,11 @@ test('serve: status, federated search, and the stats summary', async () => {
       assert.equal(r.results.filter((x) => x.source === src).length, n, `by_source[${src}] matches the results from that store`);
     }
 
+    // robustness: a non-numeric ?k / ?tokens (→ NaN through +q.k) must not empty the
+    // briefing — the endpoint should recover the same results as the default query
+    const bad = await fetch(base + '/api/search?q=retrieval%20chunks&k=abc&tokens=xyz').then((res) => res.json());
+    assert.equal(bad.count, r.count, 'bad numeric params fall back to defaults, not zero results');
+
     const only = await fetch(base + '/api/search?q=retrieval&only=reading').then((res) => res.json());
     assert.ok(!only.searched.includes('brain'), 'only= restricts which stores are queried');
 
