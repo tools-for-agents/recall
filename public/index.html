@@ -15,6 +15,22 @@
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     --mono:ui-monospace,"SFMono-Regular","JetBrains Mono",Menlo,monospace;
   }
+  /* light ("day") theme — toggle or OS preference. Source colours are darkened
+     so they stay legible as text/borders on a light ground. Kept in two places. */
+  :root[data-theme="light"] {
+    --bg:#f5f7fb; --panel:#ffffff; --panel-2:#eef1f7; --line:#e0e4ee; --line-2:#cdd3e0;
+    --txt:#191c27; --muted:#5b6376; --faint:#9aa1b4;
+    --accent:#db2777; --accent-dim:#f4bcd8; --accent-glow:rgba(219,39,119,.25);
+    --brain:#7c3aed; --team:#2563eb; --reading:#b06400; --code:#0d9488;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:#f5f7fb; --panel:#ffffff; --panel-2:#eef1f7; --line:#e0e4ee; --line-2:#cdd3e0;
+      --txt:#191c27; --muted:#5b6376; --faint:#9aa1b4;
+      --accent:#db2777; --accent-dim:#f4bcd8; --accent-glow:rgba(219,39,119,.25);
+      --brain:#7c3aed; --team:#2563eb; --reading:#b06400; --code:#0d9488;
+    }
+  }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; }
   body {
@@ -30,6 +46,21 @@
 
   /* ── Top bar ─────────────────────────────────────────────── */
   .top { grid-area:top; display:flex; align-items:center; gap:18px; padding:0 18px; height:60px; border-bottom:1px solid var(--line); background:rgba(11,13,18,.7); backdrop-filter:blur(8px); }
+  .theme-btn { flex:0 0 auto; background:var(--panel); border:1px solid var(--line); color:var(--muted); width:34px; height:34px; border-radius:9px; cursor:pointer; font-size:15px; display:grid; place-items:center; }
+  .theme-btn:hover { color:var(--accent); border-color:var(--accent); }
+  /* light-theme overrides for the hardcoded-dark surfaces */
+  :root[data-theme="light"] .top { background:rgba(255,255,255,.72); }
+  :root[data-theme="light"] body { background:
+    radial-gradient(900px 500px at 82% -12%, rgba(219,39,119,.06), transparent 60%),
+    radial-gradient(700px 500px at 10% 110%, rgba(37,99,235,.05), transparent 60%), var(--bg); }
+  :root[data-theme="light"] .xtk { background:rgba(255,255,255,.9); border-color:#e0e4ee; }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .top { background:rgba(255,255,255,.72); }
+    :root:not([data-theme="dark"]) body { background:
+      radial-gradient(900px 500px at 82% -12%, rgba(219,39,119,.06), transparent 60%),
+      radial-gradient(700px 500px at 10% 110%, rgba(37,99,235,.05), transparent 60%), var(--bg); }
+    :root:not([data-theme="dark"]) .xtk { background:rgba(255,255,255,.9); border-color:#e0e4ee; }
+  }
   .brand { display:flex; align-items:center; gap:11px; white-space:nowrap; }
   .brand .mk { font-size:23px; color:var(--accent); text-shadow:0 0 16px var(--accent-glow); }
   .brand b { font-size:16px; letter-spacing:.3px; }
@@ -119,6 +150,7 @@
       <div class="qfield"><span class="ic">⌕</span><input id="q" placeholder="one query across all your memory…" autocomplete="off" spellcheck="false" /><span class="kbd">/</span></div>
     </div>
     <div class="budget" id="budget"></div>
+    <button class="theme-btn" id="theme" title="Toggle light / dark" aria-label="Toggle theme">◐</button>
   </header>
 
   <aside class="rail">
@@ -157,6 +189,19 @@
 const $ = (s) => document.querySelector(s);
 const api = (p) => fetch(p).then((r) => r.json());
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+// ── Theme (light / dark) ─────────────────────────────────────────────────────
+(function initTheme() {
+  const saved = localStorage.getItem('recall:theme');
+  if (saved) document.documentElement.setAttribute('data-theme', saved);
+})();
+document.getElementById('theme').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  const dark = cur ? cur === 'dark' : !matchMedia('(prefers-color-scheme: light)').matches;
+  const next = dark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('recall:theme', next);
+});
 
 const SRC = {
   brain:   { glyph: '🧠', tool: 'cortex',   label: 'brain',   color: 'var(--brain)' },
