@@ -70,6 +70,9 @@
   .qfield:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px rgba(236,72,153,.12); }
   .qfield .ic { color:var(--accent); font-size:15px; }
   .qfield input { flex:1; background:none; border:none; outline:none; color:var(--txt); font-size:14px; }
+  /* ── Accessibility: a visible focus ring for keyboard users (search box uses its :focus-within ring) ── */
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .src:focus-visible, .hit:focus-visible, .rchip:focus-visible { outline-offset:-2px; }
   .qfield input::placeholder { color:var(--faint); }
   .qfield .kbd { font-family:var(--mono); font-size:10px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; }
   .budget { font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; min-width:120px; text-align:right; }
@@ -303,7 +306,8 @@ function renderSources() {
   $('#sources').innerHTML = ORDER.map((store) => {
     const meta = SRC[store]; const s = byStore[store] || {};
     const dead = !s.available; const off = !dead && !enabled.has(store);
-    return `<div class="src ${dead ? 'dead' : ''} ${off ? 'off' : ''}" data-store="${store}" style="--c:${meta.color}">
+    const a11y = dead ? '' : ` tabindex="0" role="button" aria-pressed="${!off}" aria-label="${esc(meta.tool)} · ${esc(meta.label)} — toggle in/out of the query"`;
+    return `<div class="src ${dead ? 'dead' : ''} ${off ? 'off' : ''}" data-store="${store}" style="--c:${meta.color}"${a11y}>
       <span class="g">${meta.glyph}</span>
       <div class="tx">
         <div class="nm"><span class="tool">${meta.tool}</span> · ${meta.label}</div>
@@ -313,12 +317,20 @@ function renderSources() {
     </div>`;
   }).join('');
 }
-$('#sources').addEventListener('click', (e) => {
-  const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
-  const store = el.dataset.store;
+function toggleSource(store, refocus) {
   if (enabled.has(store)) enabled.delete(store); else enabled.add(store);
   renderSources();
+  if (refocus) { const el = $(`#sources [data-store="${store}"]`); if (el) el.focus(); }   // keep keyboard focus on the row
   if ($('#q').value.trim()) runSearch($('#q').value.trim());
+}
+$('#sources').addEventListener('click', (e) => {
+  const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
+  toggleSource(el.dataset.store, false);
+});
+$('#sources').addEventListener('keydown', (e) => {   // keyboard-operable source toggles (Enter / Space)
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
+  e.preventDefault(); toggleSource(el.dataset.store, true);
 });
 
 // ── Search ───────────────────────────────────────────────────────────────────
