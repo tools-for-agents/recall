@@ -117,6 +117,8 @@
   .brief-head { display:flex; align-items:baseline; gap:12px; font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); }
   .brief-head b { color:var(--txt); }
   .brief-head .kbd-hint { font-family:var(--mono); font-size:9.5px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; letter-spacing:1px; white-space:nowrap; }
+  .brief-head .copy-md { margin-left:10px; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
+  .brief-head .copy-md:hover, .brief-head .copy-md.ok { color:var(--accent); border-color:var(--accent); }
   .brief-head .srcbreak { margin-left:auto; align-self:center; display:flex; align-items:center; gap:11px; }
   .srcbar { display:flex; width:92px; height:7px; border-radius:4px; overflow:hidden; background:var(--panel-2); border:1px solid var(--line); }
   .srcbar i { display:block; min-width:2px; }
@@ -352,11 +354,38 @@ async function runSearch(q) {
     return;
   }
   $('#budget').innerHTML = `<b>${r.count}</b> hits · <b>~${r.tokens}</b> / 2.6k tok`;
+  lastBrief = { q, r };   // keep the raw briefing so it can be copied as markdown
   b.innerHTML = `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
       <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
-      ${srcBreakdown(r.by_source)}</div>` +
+      ${srcBreakdown(r.by_source)}<button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
     r.results.map(hitCard).join('');
   selHit = -1;   // reset keyboard selection for the new briefing
+}
+// Assemble the current briefing as a markdown list — paste it into a PR, note or message.
+function briefingMarkdown() {
+  if (!lastBrief) return '';
+  const { q, r } = lastBrief;
+  const lines = [`# recall — “${q}”`, '', `${r.count} results · ~${r.tokens} tokens`, ''];
+  for (const x of r.results) {
+    const meta = SRC[x.source] || { glyph: '•', tool: x.source };
+    const href = linkFor(x.source, x.ref);
+    const title = x.title || x.ref;
+    const ref = (x.meta ? x.meta + ' · ' : '') + '`' + x.ref + '`';
+    lines.push(`- **${href ? `[${title}](${href})` : title}** · ${meta.glyph} ${meta.tool} · ${ref}`);
+    const ex = String(x.excerpt || '').replaceAll('⟦', '**').replaceAll('⟧', '**').trim();
+    if (ex) lines.push(`  > ${ex}`);
+  }
+  return lines.join('\n');
+}
+async function copyBriefing(btn) {
+  const md = briefingMarkdown(); if (!md) return;
+  const label = btn.dataset.label || btn.innerHTML; btn.dataset.label = label;
+  let ok = false;
+  try { await navigator.clipboard.writeText(md); ok = true; }
+  catch { try { const ta = document.createElement('textarea'); ta.value = md; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch {} }
+  btn.textContent = ok ? '✓ copied' : '✗ failed'; btn.classList.toggle('ok', ok);
+  clearTimeout(btn._t); btn._t = setTimeout(() => { btn.innerHTML = label; btn.classList.remove('ok'); }, 1400);
 }
 // The federated briefing, made legible: a proportional bar + per-source counts,
 // each in its source's colour, so you can see how the result is composed.
@@ -387,7 +416,7 @@ const markExcerpt = (s) => esc(s).replaceAll('⟦', '<mark>').replaceAll('⟧', 
 // ── Keyboard navigation of the briefing hits ─────────────────────────────────
 // ↑/↓ move a selection through the hit cards; Enter opens the selected hit in its
 // owning tool (the deep-link); Esc clears the selection and returns to the search.
-let selHit = -1;
+let selHit = -1, lastBrief = null;
 const hitEls = () => [...document.querySelectorAll('#briefing .hit')];
 function selectHit(i) {
   const hs = hitEls(); if (!hs.length) { selHit = -1; return; }
@@ -407,6 +436,7 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && selHit >= 0) { e.preventDefault(); selectHit(-1); $('#q').focus(); }
 });
 $('#briefing').addEventListener('click', (e) => {   // click a card to select it (the ↗ link still opens directly)
+  const cp = e.target.closest('[data-copymd]'); if (cp) { copyBriefing(cp); return; }
   if (e.target.closest('a.open')) return;
   const hit = e.target.closest('.hit'); if (hit) selectHit(hitEls().indexOf(hit));
 });
