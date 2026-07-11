@@ -192,6 +192,17 @@
   .hit .to-cortex.done { color:var(--brain); border-color:var(--brain); }
   .hit .to-cortex:disabled { opacity:.65; cursor:default; }
   /* what's new since you last asked */
+  /* a briefing that didn't reach every store must say so */
+  .missbar { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; padding:10px 13px; border-radius:11px;
+    font-size:12.5px; line-height:1.5; color:var(--txt);
+    background:rgba(245,166,35,.1); border:1px solid rgba(245,166,35,.42); }
+  .missbar .mb-i { color:#f5a623; font-size:14px; line-height:1.3; flex:none; }
+  .missbar b { color:#f5a623; }
+  .missbar .mb-r { margin-left:auto; flex:none; font-family:var(--mono); font-size:10.5px; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+  .missbar .mb-r:hover { color:#f5a623; border-color:#f5a623; }
+  .brief-head .asked { font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+  .brief-head .asked b { color:var(--accent); }
   .newbar { display:flex; align-items:center; gap:9px; margin-bottom:14px; padding:9px 13px; border-radius:11px;
     font-size:12.5px; color:var(--txt);
     background:color-mix(in srgb, var(--accent) 10%, transparent);
@@ -590,6 +601,36 @@ function hitsHtml(r) {
       ${items.map(hitCard).join('')}</div>`;
   }).join('');
 }
+// ── Who did this briefing actually ask? ─────────────────────────────────────
+// recall has always reported `searched` — the stores that actually answered — and
+// the console threw it away. That is the one lie a federated search must not tell:
+// a briefing that reached three of four stores looks EXACTLY like one that reached
+// all four and found nothing in the fourth. "The team doesn't know about X" and
+// "I never asked the team" are not the same sentence.
+function askedHtml(r) {
+  // Expected = the stores you ASKED FOR (the source toggles) — not the ones that
+  // happened to be live when the page loaded. A store that was down at boot and a
+  // store that died mid-query are the same fact to a reader: this briefing did not
+  // reach it. (Using the boot-time snapshot also produced "searched 4 of 3" when a
+  // store came back after load.) Toggle a source off and you stop expecting it.
+  const expected = ORDER.filter((s) => enabled.has(s));
+  const asked = new Set(r.searched || []);
+  const missing = expected.filter((s) => !asked.has(s));
+  const label = (s) => `${SRC[s]?.glyph || '•'} ${SRC[s]?.tool || s}`;
+
+  const count = `<span class="asked" title="${expected.map(label).join(' · ')}">searched <b>${asked.size}</b> of ${expected.length} store${expected.length === 1 ? '' : 's'}</span>`;
+  if (!missing.length) return { count, warn: '' };
+  return {
+    count,
+    warn: `<div class="missbar">
+      <span class="mb-i">⚠</span>
+      <span><b>${missing.map(label).join(', ')}</b> did not answer — this briefing is a <b>partial</b> answer.
+      What is missing here may not be missing from the company.</span>
+      <button class="mb-r" data-retry>retry</button>
+    </div>`,
+  };
+}
+
 function newBanner(q) {
   if (fresh.first || !fresh.ids.size) return '';
   const n = fresh.ids.size;
@@ -598,7 +639,8 @@ function newBanner(q) {
     <button class="nb-seen" data-markseen="${esc(q)}" title="Stop marking these as new">✓ mark seen</button></div>`;
 }
 function briefingHtml(q, r) {
-  return newBanner(q) + `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
+  const asked = askedHtml(r);
+  return asked.warn + newBanner(q) + `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens · ${asked.count}
       <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
       ${srcBreakdown(r.by_source)}<button class="group-btn${grouped ? ' on' : ''}" data-group title="${grouped ? 'Grouped by source — click for interleave' : 'Group hits by source'}" aria-label="Toggle group by source">${grouped ? '⊟ grouped' : '⊞ group'}</button><button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button>${WEB.brain ? `<button class="keep-btn" data-keep title="Keep this whole briefing in cortex as one note">🧠 keep briefing</button>` : ''}</div>` +
     hitsHtml(r);
@@ -790,7 +832,7 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'Enter' && selHit >= 0) { e.preventDefault(); openSelectedHit(); }
   else if (e.key === 'Escape' && selHit >= 0) { e.preventDefault(); selectHit(-1); $('#q').focus(); }
 });
-$('#briefing').addEventListener('click', (e) => {   // click a card to select it (the ↗ link still opens directly)
+$('#briefing').addEventListener('click', async (e) => {   // click a card to select it (the ↗ link still opens directly)
   const gb = e.target.closest('[data-group]');
   if (gb) { grouped = !grouped; saveGrouped(); if (lastBrief) { $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; } return; }
   const sv = e.target.closest('[data-save]');
@@ -799,6 +841,12 @@ $('#briefing').addEventListener('click', (e) => {   // click a card to select it
   if (ms) {   // acknowledge: these are the hits you have now seen
     if (lastBrief) { markSeen(lastBrief.q, lastBrief.r.results); fresh = { first: true, ids: new Set(), since: null };
       $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; }
+    return;
+  }
+  const rt = e.target.closest('[data-retry]');
+  if (rt) {   // a store that was down may be up now — ask again, and refresh who's live
+    const q = $('#q').value.trim();
+    if (q) { STATUS = await api('/api/status'); renderSources(); runSearch(q); }
     return;
   }
   const kp = e.target.closest('[data-keep]'); if (kp) { keepBriefing(kp); return; }

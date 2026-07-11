@@ -95,3 +95,29 @@ test('serve: the token budget is what binds — shrink it and the briefing sheds
     assert.equal(big.results.reduce((a, h) => a + h.tokens, 0), big.tokens, 'per-hit costs sum to the briefing total');
   } finally { server.close(); }
 });
+
+test('searched: a store that answered nothing is not the same as a store that never answered', async () => {
+  const server = createRecallServer();
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://localhost:${server.address().port}`;
+  try {
+    // the brain is present; scout + lens are absent files; agent-hq is unreachable
+    // (the harness points them at nothing) — so only the brain can answer.
+    const hit = await fetch(base + '/api/search?q=retrieval%20chunks').then((r) => r.json());
+    assert.ok(hit.searched.includes('brain'), 'the store that answered is listed');
+    assert.ok(!hit.searched.includes('reading'), 'a store whose file is absent never answered');
+    assert.ok(!hit.searched.includes('code'), 'nor did the missing code index');
+    assert.ok(!hit.searched.includes('team'), 'nor did the unreachable platform');
+
+    // THE DISTINCTION THE UI RESTS ON: a store that was searched and found nothing
+    // still reports as searched. Otherwise "we don't know" and "we never asked"
+    // would be the same answer — and a partial briefing would look complete.
+    const miss = await fetch(base + '/api/search?q=zzzz-nothing-matches-this').then((r) => r.json());
+    assert.equal(miss.count, 0, 'nothing matched');
+    assert.ok(miss.searched.includes('brain'), 'but the brain WAS asked — searched is not "found"');
+
+    // and honouring a source filter narrows who is asked at all
+    const only = await fetch(base + '/api/search?q=retrieval&only=reading').then((r) => r.json());
+    assert.ok(!only.searched.includes('brain'), 'a store you excluded is not asked');
+  } finally { server.close(); }
+});
