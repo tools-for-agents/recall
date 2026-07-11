@@ -191,6 +191,20 @@
   .hit .to-cortex:hover { background:color-mix(in srgb, var(--brain) 24%, transparent); }
   .hit .to-cortex.done { color:var(--brain); border-color:var(--brain); }
   .hit .to-cortex:disabled { opacity:.65; cursor:default; }
+  /* what's new since you last asked */
+  .newbar { display:flex; align-items:center; gap:9px; margin-bottom:14px; padding:9px 13px; border-radius:11px;
+    font-size:12.5px; color:var(--txt);
+    background:color-mix(in srgb, var(--accent) 10%, transparent);
+    border:1px solid color-mix(in srgb, var(--accent) 34%, transparent); }
+  .newbar b { color:var(--accent); }
+  .newbar .nb-dot { width:7px; height:7px; border-radius:50%; background:var(--accent); flex:none;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .newbar .nb-seen { margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--muted);
+    background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
+  .newbar .nb-seen:hover { color:var(--accent); border-color:var(--accent); }
+  .hit.fresh { border-color:color-mix(in srgb, var(--accent) 40%, var(--line)); }
+  .newchip { font-family:var(--mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase; font-weight:700;
+    color:var(--bg); background:var(--accent); border-radius:20px; padding:1px 7px; flex:none; }
   .hit .hit-full[hidden] { display:none; }
   .hit .hit-full { margin-top:9px; }
   .hit .hf-meta { font-family:var(--mono); font-size:10px; color:var(--faint); margin-bottom:5px; }
@@ -326,6 +340,7 @@ function setBudget(v, { rerun = true } = {}) {
   if (rerun && q) runSearch(q);       // re-fill the briefing to the new budget
 }
 
+let fresh = { first: true, ids: new Set(), since: null };   // the current briefing's diff
 let STATUS = null;
 const enabled = new Set(ORDER);      // which sources to query (available ones)
 const WEB = {};                      // store -> its web view base url (for cross-tool links)
@@ -358,6 +373,42 @@ function showRecent() { if (!recent.length) { hideRecent(); return; } renderRece
 function hideRecent() { $('#recent').hidden = true; }
 
 // ── Saved searches (persisted favourites, distinct from ephemeral recents) ────
+// ── "What's new since you last asked" ───────────────────────────────────────
+// recall is the tool you run FIRST, at the start of a task — and the second time
+// you ask a question, what you actually want to know is what CHANGED. So each
+// query remembers the hits you have already seen; on the next ask, anything that
+// wasn't there is marked new. Per browser, like the rest of recall's memory.
+const NKEY = 'recall:seen', NCAP = 40;
+const refId = (x) => `${x.source}:${x.ref}`;
+let seen = (() => { try { return JSON.parse(localStorage.getItem(NKEY)) || {}; } catch { return {}; } })();
+const qKey = (q) => String(q).trim().toLowerCase();
+function persistSeen() {
+  // keep the store bounded — drop the oldest acknowledgements first
+  const keys = Object.keys(seen).sort((a, b) => (seen[b].ts || '').localeCompare(seen[a].ts || ''));
+  if (keys.length > NCAP) for (const k of keys.slice(NCAP)) delete seen[k];
+  try { localStorage.setItem(NKEY, JSON.stringify(seen)); } catch {}
+}
+// The hits that weren't there last time you asked this. First ask → nothing is
+// "new" (it is all new), so we just record it silently.
+function newSince(q, results) {
+  const snap = seen[qKey(q)];
+  if (!snap) { markSeen(q, results); return { first: true, ids: new Set(), since: null }; }
+  const known = new Set(snap.refs || []);
+  return { first: false, ids: new Set(results.filter((x) => !known.has(refId(x))).map(refId)), since: snap.ts };
+}
+function markSeen(q, results) {
+  seen[qKey(q)] = { ts: new Date().toISOString(), refs: results.map(refId) };
+  persistSeen();
+}
+const agoTxt = (iso) => {
+  const m = (Date.now() - new Date(iso)) / 60000;
+  if (!Number.isFinite(m)) return '';
+  if (m < 1) return 'just now';
+  if (m < 60) return Math.round(m) + 'm ago';
+  if (m < 1440) return Math.round(m / 60) + 'h ago';
+  return Math.round(m / 1440) + 'd ago';
+};
+
 const SKEY = 'recall:saved', SCAP = 24;
 let saved = loadSaved();             // declared before any handler runs (avoid TDZ)
 function loadSaved() {
@@ -505,6 +556,9 @@ async function runSearch(q) {
   const params = new URLSearchParams({ q, k: String(k), tokens: String(tokens) });
   if (only.length && only.length < live.length) params.set('only', only.join(','));
   const r = await api('/api/search?' + params.toString());
+  // Diff BEFORE the empty-result exit: asking something that has no answer yet is
+  // exactly the case where the answer arriving later should be flagged as new.
+  fresh = newSince(q, r.results || []);
   $('#welcome').style.display = 'none';
   const b = $('#briefing'); b.hidden = false;
   if (!r.count) {
@@ -530,8 +584,15 @@ function hitsHtml(r) {
       ${items.map(hitCard).join('')}</div>`;
   }).join('');
 }
+function newBanner(q) {
+  if (fresh.first || !fresh.ids.size) return '';
+  const n = fresh.ids.size;
+  return `<div class="newbar"><span class="nb-dot"></span>
+    <b>${n}</b> new result${n === 1 ? '' : 's'} since you last asked this${fresh.since ? ` · ${agoTxt(fresh.since)}` : ''}
+    <button class="nb-seen" data-markseen="${esc(q)}" title="Stop marking these as new">✓ mark seen</button></div>`;
+}
 function briefingHtml(q, r) {
-  return `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
+  return newBanner(q) + `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
       <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
       ${srcBreakdown(r.by_source)}<button class="group-btn${grouped ? ' on' : ''}" data-group title="${grouped ? 'Grouped by source — click for interleave' : 'Group hits by source'}" aria-label="Toggle group by source">${grouped ? '⊟ grouped' : '⊞ group'}</button><button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
     hitsHtml(r);
@@ -578,10 +639,12 @@ function hitCard(x) {
   // No capture button on a brain hit — that passage already lives in cortex.
   const cap = (x.source !== 'brain' && WEB.brain)
     ? `<button class="to-cortex" data-capture type="button" title="Write this into your second brain (cortex)">🧠 → cortex</button>` : '';
-  return `<div class="hit" style="--c:${meta.color}" data-source="${esc(x.source)}" data-ref="${esc(x.ref)}">
+  const isNew = fresh.ids.has(refId(x));
+  return `<div class="hit${isNew ? ' fresh' : ''}" style="--c:${meta.color}" data-source="${esc(x.source)}" data-ref="${esc(x.ref)}">
     <div class="hh">
       <span class="chip">${meta.glyph} ${meta.tool}</span>
       <span class="title">${esc(x.title || x.ref)}</span>
+      ${isNew ? '<span class="newchip">new</span>' : ''}
       <span class="tok">~${x.tokens} tok</span>
     </div>
     <div class="ref">${esc(x.meta ? x.meta + ' · ' : '')}${esc(x.ref)}</div>
@@ -683,6 +746,12 @@ $('#briefing').addEventListener('click', (e) => {   // click a card to select it
   if (gb) { grouped = !grouped; saveGrouped(); if (lastBrief) { $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; } return; }
   const sv = e.target.closest('[data-save]');
   if (sv) { toggleSaved(sv.dataset.save); return; }   // toggleSaved → renderSaved → syncSaveBtn updates this star
+  const ms = e.target.closest('[data-markseen]');
+  if (ms) {   // acknowledge: these are the hits you have now seen
+    if (lastBrief) { markSeen(lastBrief.q, lastBrief.r.results); fresh = { first: true, ids: new Set(), since: null };
+      $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; }
+    return;
+  }
   const cp = e.target.closest('[data-copymd]'); if (cp) { copyBriefing(cp); return; }
   const ex = e.target.closest('[data-expand]'); if (ex) { toggleExpand(ex); return; }
   const cap = e.target.closest('[data-capture]'); if (cap) { captureToCortex(cap); return; }
