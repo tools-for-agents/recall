@@ -202,6 +202,12 @@
   .newbar .nb-seen { margin-left:auto; font-family:var(--mono); font-size:10.5px; color:var(--muted);
     background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; }
   .newbar .nb-seen:hover { color:var(--accent); border-color:var(--accent); }
+  .keep-btn { font-family:var(--mono); font-size:10.5px; color:var(--brain); white-space:nowrap;
+    background:color-mix(in srgb, var(--brain) 10%, transparent);
+    border:1px solid color-mix(in srgb, var(--brain) 34%, transparent); border-radius:7px; padding:3px 9px; cursor:pointer;
+    transition:background .13s; }
+  .keep-btn:hover, .keep-btn.ok { background:color-mix(in srgb, var(--brain) 24%, transparent); border-color:var(--brain); }
+  .keep-btn:disabled { opacity:.7; cursor:default; }
   .hit.fresh { border-color:color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .newchip { font-family:var(--mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase; font-weight:700;
     color:var(--bg); background:var(--accent); border-radius:20px; padding:1px 7px; flex:none; }
@@ -594,7 +600,7 @@ function newBanner(q) {
 function briefingHtml(q, r) {
   return newBanner(q) + `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens
       <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
-      ${srcBreakdown(r.by_source)}<button class="group-btn${grouped ? ' on' : ''}" data-group title="${grouped ? 'Grouped by source — click for interleave' : 'Group hits by source'}" aria-label="Toggle group by source">${grouped ? '⊟ grouped' : '⊞ group'}</button><button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button></div>` +
+      ${srcBreakdown(r.by_source)}<button class="group-btn${grouped ? ' on' : ''}" data-group title="${grouped ? 'Grouped by source — click for interleave' : 'Group hits by source'}" aria-label="Toggle group by source">${grouped ? '⊟ grouped' : '⊞ group'}</button><button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button>${WEB.brain ? `<button class="keep-btn" data-keep title="Keep this whole briefing in cortex as one note">🧠 keep briefing</button>` : ''}</div>` +
     hitsHtml(r);
 }
 // Assemble the current briefing as a markdown list — paste it into a PR, note or message.
@@ -654,6 +660,49 @@ function hitCard(x) {
   </div>`;
 }
 const markExcerpt = (s) => esc(s).replaceAll('⟦', '<mark>').replaceAll('⟧', '</mark>');
+
+// ── Keep the whole briefing ─────────────────────────────────────────────────
+// A briefing was a dead end: you could act on one hit, or copy the lot to your
+// clipboard, but the answer itself — four stores, reconciled, for one question —
+// evaporated when you typed the next query. Keeping it writes ONE note, titled
+// with the question. Ask it again next week and the answer appends: the note
+// becomes the running record of what the company knows about that question.
+async function keepBriefing(btn) {
+  if (!lastBrief || !WEB.brain) return;
+  const { q, r } = lastBrief;
+  const label = btn.dataset.label || btn.innerHTML; btn.dataset.label = label;
+  btn.disabled = true; btn.textContent = '🧠 keeping…';
+  try {
+    const when = new Date().toISOString().slice(0, 10);
+    const sources = ORDER.filter((s) => r.by_source && r.by_source[s])
+      .map((s) => `${SRC[s].glyph} ${r.by_source[s]} ${SRC[s].tool}`).join(' · ');
+    const body = [
+      `## asked ${when}`,
+      '',
+      `${r.count} results · ~${r.tokens} tokens · ${sources}`,
+      '',
+      // reuse the same markdown the ⧉ button copies — minus its title AND its count
+      // line, which the header above already states (with the source breakdown)
+      briefingMarkdown().split('\n').slice(3).join('\n').trim(),
+    ].join('\n');
+
+    const res = await fetch(`${WEB.brain}/api/note`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: q, type: 'synthesis', tags: ['briefing'], body, append: true }),
+    });
+    if (!res.ok) throw new Error('cortex refused');
+    const n = await res.json();
+    btn.classList.add('ok');
+    btn.textContent = n.action === 'updated' ? '🧠 ✓ appended' : '🧠 ✓ kept';
+    btn.title = `Saved to cortex as "${n.slug}"`;
+  } catch {
+    btn.textContent = '🧠 cortex offline';
+    btn.title = 'Start cortex serve (port 7800) to keep briefings in your brain';
+  } finally {
+    clearTimeout(btn._t);
+    btn._t = setTimeout(() => { btn.disabled = false; btn.innerHTML = label; btn.classList.remove('ok'); }, 2600);
+  }
+}
 
 // ── Send a hit to cortex — the toolkit's one cross-tool WRITE ────────────────
 // Everything else here only cross-*links*. This closes the loop: something the
@@ -752,6 +801,7 @@ $('#briefing').addEventListener('click', (e) => {   // click a card to select it
       $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; }
     return;
   }
+  const kp = e.target.closest('[data-keep]'); if (kp) { keepBriefing(kp); return; }
   const cp = e.target.closest('[data-copymd]'); if (cp) { copyBriefing(cp); return; }
   const ex = e.target.closest('[data-expand]'); if (ex) { toggleExpand(ex); return; }
   const cap = e.target.closest('[data-capture]'); if (cap) { captureToCortex(cap); return; }
