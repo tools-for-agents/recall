@@ -77,6 +77,18 @@
   .qfield .kbd { font-family:var(--mono); font-size:10px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; }
   .budget { font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; min-width:120px; text-align:right; }
   .budget b { color:var(--accent); font-variant-numeric:tabular-nums; }
+  /* the token budget is what recall IS — make it something you can turn */
+  .bctl { display:flex; align-items:center; gap:8px; white-space:nowrap; }
+  .bctl-l { font-family:var(--mono); font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
+  .bctl-v { font-family:var(--mono); font-size:11px; color:var(--accent); font-variant-numeric:tabular-nums; min-width:30px; }
+  #tokbudget { -webkit-appearance:none; appearance:none; width:104px; height:3px; border-radius:20px; background:var(--line-2); cursor:pointer; }
+  #tokbudget::-webkit-slider-thumb { -webkit-appearance:none; width:12px; height:12px; border-radius:50%; background:var(--accent); cursor:pointer;
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  #tokbudget::-moz-range-thumb { width:12px; height:12px; border:none; border-radius:50%; background:var(--accent); cursor:pointer; }
+  /* how full the briefing is against its budget — the fill IS the point */
+  .bfill { display:inline-block; width:44px; height:3px; border-radius:20px; background:var(--line-2); overflow:hidden; vertical-align:middle; margin-left:7px; }
+  .bfill i { display:block; height:100%; background:var(--accent); border-radius:20px; }
+  @media (max-width:900px) { .bctl { display:none; } }
 
   /* ── Recent-queries dropdown (under the search field) ──────── */
   .recent { position:absolute; top:48px; left:0; right:0; z-index:30; background:var(--panel);
@@ -212,6 +224,12 @@
       <div class="qfield"><span class="ic">⌕</span><input id="q" placeholder="one query across all your memory…" autocomplete="off" spellcheck="false" /><span class="kbd">/</span></div>
       <div class="recent" id="recent" hidden></div>
     </div>
+    <div class="bctl">
+      <label class="bctl-l" for="tokbudget">budget</label>
+      <input type="range" id="tokbudget" min="400" max="8000" step="200" value="2600"
+             aria-label="Token budget for the briefing" aria-describedby="budget" />
+      <span class="bctl-v" id="budgetVal">2.6k</span>
+    </div>
     <div class="budget" id="budget"></div>
     <button class="theme-btn" id="theme" title="Toggle light / dark" aria-label="Toggle theme">◐</button>
   </header>
@@ -279,6 +297,25 @@ const ORDER = ['brain', 'team', 'reading', 'code'];
 const GKEY = 'recall:grouped';
 let grouped = (() => { try { return localStorage.getItem(GKEY) === '1'; } catch { return false; } })();
 function saveGrouped() { try { localStorage.setItem(GKEY, grouped ? '1' : '0'); } catch {} }
+
+// ── Token budget: the briefing's whole contract, made turnable ───────────────
+// recall exists to hand an agent *just enough* context. The slider makes that
+// budget a live dial: shrink it and watch the briefing shed its weakest hits.
+const BKEY = 'recall:budget', BMIN = 400, BMAX = 8000, BDEF = 2600;
+let tokBudget = (() => {
+  try { const v = +localStorage.getItem(BKEY); return Number.isFinite(v) && v >= BMIN && v <= BMAX ? v : BDEF; }
+  catch { return BDEF; }
+})();
+const budget = () => tokBudget;
+const fmtTok = (n) => (n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n));
+function setBudget(v, { rerun = true } = {}) {
+  tokBudget = Math.min(BMAX, Math.max(BMIN, Math.round(+v / 200) * 200));
+  $('#budgetVal').textContent = fmtTok(tokBudget);
+  $('#tokbudget').value = String(tokBudget);
+  try { localStorage.setItem(BKEY, String(tokBudget)); } catch {}
+  const q = $('#q').value.trim();
+  if (rerun && q) runSearch(q);       // re-fill the briefing to the new budget
+}
 
 let STATUS = null;
 const enabled = new Set(ORDER);      // which sources to query (available ones)
@@ -414,6 +451,16 @@ $('#sources').addEventListener('click', (e) => {
   const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
   toggleSource(el.dataset.store, false);
 });
+// Dragging the slider fires continuously: paint the new budget instantly, but
+// debounce the refetch so a sweep across the range is one search, not forty.
+let budgetTimer;
+$('#tokbudget').addEventListener('input', (e) => {
+  const v = +e.target.value;
+  tokBudget = v; $('#budgetVal').textContent = fmtTok(v);
+  clearTimeout(budgetTimer);
+  budgetTimer = setTimeout(() => setBudget(v), 160);
+});
+setBudget(tokBudget, { rerun: false });   // paint the restored budget onto the slider at boot
 $('#sources').addEventListener('keydown', (e) => {   // keyboard-operable source toggles (Enter / Space)
   if (e.key !== 'Enter' && e.key !== ' ') return;
   const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
@@ -442,7 +489,11 @@ async function runSearch(q) {
   pushRecent(q);   // remember every executed query (prefix-typing collapses to the latest)
   const live = STATUS.stores.filter((s) => s.available).map((s) => s.store);
   const only = live.filter((s) => enabled.has(s));
-  const params = new URLSearchParams({ q, k: '14', tokens: '2600' });
+  const tokens = budget();
+  // k has to scale with the budget, or it — not the budget — is what binds, and
+  // the slider would stop changing anything once k results fit.
+  const k = Math.min(60, Math.max(10, Math.round(tokens / 90)));
+  const params = new URLSearchParams({ q, k: String(k), tokens: String(tokens) });
   if (only.length && only.length < live.length) params.set('only', only.join(','));
   const r = await api('/api/search?' + params.toString());
   $('#welcome').style.display = 'none';
@@ -452,7 +503,9 @@ async function runSearch(q) {
     b.innerHTML = `<div class="empty2">No matches for “${esc(q)}” across ${only.length || live.length} store${(only.length || live.length) === 1 ? '' : 's'}.</div>`;
     return;
   }
-  $('#budget').innerHTML = `<b>${r.count}</b> hits · <b>~${r.tokens}</b> / 2.6k tok`;
+  const pct = Math.min(100, Math.round((r.tokens / tokens) * 100));
+  $('#budget').innerHTML = `<b>${r.count}</b> hits · <b>~${r.tokens}</b> / ${fmtTok(tokens)} tok`
+    + `<span class="bfill" title="${pct}% of the budget used"><i style="width:${pct}%"></i></span>`;
   lastBrief = { q, r };   // keep the raw briefing so it can be copied / re-laid-out
   b.innerHTML = briefingHtml(q, r);
   selHit = -1;   // reset keyboard selection for the new briefing

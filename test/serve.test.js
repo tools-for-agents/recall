@@ -64,3 +64,34 @@ test('serve: status, federated search, and the stats summary', async () => {
     assert.ok(stats.available >= 1 && stats.entries >= 1, 'stats summarises live stores');
   } finally { server.close(); }
 });
+
+test('serve: the token budget is what binds — shrink it and the briefing sheds hits', async () => {
+  // Each excerpt is a fixed ~32-token snippet, so a budget only bites when there
+  // are many matches — seed a corpus deep enough that the budget, not the corpus,
+  // is the limit.
+  const db2 = new DatabaseSync(brainDb);
+  const ins = db2.prepare('INSERT OR IGNORE INTO notes VALUES (?,?,?)');
+  const insF = db2.prepare('INSERT INTO notes_fts (slug,title,tags,body) VALUES (?,?,?,?)');
+  for (let i = 0; i < 30; i++) {
+    ins.run(`chunk-${i}`, `Chunking note ${i}`, 'concept');
+    insF.run(`chunk-${i}`, `Chunking note ${i}`, 'ml',
+      `Retrieval augmented generation fetches relevant chunks for the model. Variant ${i}.`);
+  }
+  db2.close();
+
+  const server = createRecallServer();
+  await new Promise((r) => server.listen(0, r));
+  const base = `http://localhost:${server.address().port}`;
+  const search = (tokens) => fetch(`${base}/api/search?q=retrieval%20chunks&k=60&tokens=${tokens}`).then((r) => r.json());
+  try {
+    const big = await search(4000);
+    const small = await search(400);
+
+    assert.ok(big.tokens <= 4000 && small.tokens <= 400, 'neither briefing overspends its budget');
+    assert.ok(small.count < big.count, 'a smaller budget yields a shorter briefing');
+    assert.ok(small.tokens < big.tokens, 'and spends fewer tokens');
+    assert.ok(big.tokens > 400, 'the bigger budget is actually used, not left on the table');
+    // every hit reports its own cost, and they add up to the briefing's total
+    assert.equal(big.results.reduce((a, h) => a + h.tokens, 0), big.tokens, 'per-hit costs sum to the briefing total');
+  } finally { server.close(); }
+});
