@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, normalize } from 'node:path';
-import { recall, status } from './core.js';
+import { recall, status, expand } from './core.js';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dir, '..', 'public');
@@ -32,6 +32,10 @@ const api = {
     max_tokens: q.tokens ? +q.tokens : 2400,
     sources: q.only ? q.only.split(',').filter(Boolean) : undefined,
   }),
+  '/api/expand': async (q) => {
+    if (!q.source || !q.ref) throw new Error('source and ref required');
+    return expand(q.source, q.ref);
+  },
   '/api/health': async () => ({ ok: true, service: 'recall', ts: new Date().toISOString() }),
 };
 

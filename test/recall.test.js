@@ -13,9 +13,9 @@ process.on('exit', () => { try { rmSync(dir, { recursive: true, force: true }); 
 // a minimal cortex index (notes + notes_fts) recall can read
 const brainDb = join(dir, 'brain.db');
 const db = new DatabaseSync(brainDb);
-db.exec(`CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT);
+db.exec(`CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, body TEXT);
          CREATE VIRTUAL TABLE notes_fts USING fts5(slug UNINDEXED, title, tags, body, tokenize='porter unicode61');`);
-db.prepare('INSERT INTO notes VALUES (?,?,?)').run('rag', 'RAG', 'concept');
+db.prepare('INSERT INTO notes VALUES (?,?,?,?)').run('rag', 'RAG', 'concept', 'Retrieval augmented generation fetches relevant chunks for the model. The full note body lives here.');
 db.prepare('INSERT INTO notes_fts (slug,title,tags,body) VALUES (?,?,?,?)')
   .run('rag', 'RAG', 'ml', 'Retrieval augmented generation fetches relevant chunks for the model.');
 db.close();
@@ -74,4 +74,17 @@ test('status reports all four stores', async () => {
   assert.equal(s.stores.length, 4);
   assert.deepEqual(s.stores.map((x) => x.store).sort(), ['brain', 'code', 'reading', 'team']);
   assert.equal(s.stores.find((x) => x.store === 'brain').available, true);
+});
+
+test('expand returns the full note body behind a hit, and null for an unknown ref', async () => {
+  const e = await r.expand('brain', 'rag');
+  assert.equal(e.source, 'brain');
+  assert.match(e.text, /full note body lives here/, 'returns the full note body, not just the snippet');
+  assert.equal(e.truncated, false, 'a short note is not truncated');
+
+  const miss = await r.expand('brain', 'no-such-slug');
+  assert.equal(miss.text, null, 'an unknown ref yields null text, not an error');
+
+  const absent = await r.expand('reading', 'https://x');   // scout store not configured in this test
+  assert.equal(absent.text, null, 'an absent store degrades to null');
 });

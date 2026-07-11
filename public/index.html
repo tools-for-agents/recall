@@ -168,6 +168,13 @@
     border:1px solid color-mix(in srgb, var(--c) 40%, transparent); border-radius:7px; padding:4px 11px;
     background:color-mix(in srgb, var(--c) 10%, transparent); transition:background .13s; }
   .hit .open:hover { background:color-mix(in srgb, var(--c) 22%, transparent); }
+  .hit .hit-expand { margin-right:auto; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
+  .hit .hit-expand:hover { color:var(--c); border-color:var(--c); }
+  .hit .hit-full[hidden] { display:none; }
+  .hit .hit-full { margin-top:9px; }
+  .hit .hf-meta { font-family:var(--mono); font-size:10px; color:var(--faint); margin-bottom:5px; }
+  .hit .hf-note { font-family:var(--mono); font-size:10.5px; color:var(--muted); margin-top:6px; }
+  .hit .hf-body { white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.55; color:var(--txt); max-height:280px; overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:9px 12px; }
 
   /* ── Welcome / convergence hero ──────────────────────────── */
   .welcome { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; }
@@ -506,7 +513,7 @@ function hitCard(x) {
   const meta = SRC[x.source] || { glyph: '•', tool: x.source, label: x.source, color: 'var(--muted)' };
   const href = linkFor(x.source, x.ref);
   const open = href ? `<a class="open" href="${esc(href)}" target="_blank" rel="noopener" title="Open in ${esc(meta.tool)}">open in ${esc(meta.tool)} ↗</a>` : '';
-  return `<div class="hit" style="--c:${meta.color}">
+  return `<div class="hit" style="--c:${meta.color}" data-source="${esc(x.source)}" data-ref="${esc(x.ref)}">
     <div class="hh">
       <span class="chip">${meta.glyph} ${meta.tool}</span>
       <span class="title">${esc(x.title || x.ref)}</span>
@@ -514,10 +521,35 @@ function hitCard(x) {
     </div>
     <div class="ref">${esc(x.meta ? x.meta + ' · ' : '')}${esc(x.ref)}</div>
     <div class="ex">${markExcerpt(x.excerpt)}</div>
-    ${open ? `<div class="hit-foot">${open}</div>` : ''}
+    <div class="hit-full" hidden></div>
+    <div class="hit-foot"><button class="hit-expand" data-expand type="button" aria-expanded="false" title="Show fuller context inline">⌄ more</button>${open}</div>
   </div>`;
 }
 const markExcerpt = (s) => esc(s).replaceAll('⟦', '<mark>').replaceAll('⟧', '</mark>');
+const toolOf = (s) => (SRC[s] || {}).tool || 'the tool';
+// Expand a hit inline to preview the full note / page / code chunk behind it.
+async function toggleExpand(btn) {
+  const hit = btn.closest('.hit'); if (!hit) return;
+  const full = hit.querySelector('.hit-full');
+  const open = hit.classList.toggle('expanded');
+  full.hidden = !open;
+  btn.textContent = open ? '⌃ less' : '⌄ more';
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open && !full.dataset.loaded) {
+    full.dataset.loaded = '1';
+    full.innerHTML = '<div class="hf-note">loading…</div>';
+    try {
+      const r = await api('/api/expand?source=' + encodeURIComponent(hit.dataset.source) + '&ref=' + encodeURIComponent(hit.dataset.ref));
+      if (r && r.text) {
+        full.innerHTML = r.meta ? `<div class="hf-meta">${esc(r.meta)}</div>` : '';
+        const body = document.createElement('div'); body.className = 'hf-body'; body.textContent = r.text; full.appendChild(body);
+        if (r.truncated) { const m = document.createElement('div'); m.className = 'hf-note'; m.textContent = '… open in ' + toolOf(hit.dataset.source) + ' for the rest'; full.appendChild(m); }
+      } else {
+        full.innerHTML = `<div class="hf-note">Full text isn't available inline — open in ${esc(toolOf(hit.dataset.source))}.</div>`;
+      }
+    } catch { full.innerHTML = '<div class="hf-note">(could not load)</div>'; }
+  }
+}
 
 // ── Keyboard navigation of the briefing hits ─────────────────────────────────
 // ↑/↓ move a selection through the hit cards; Enter opens the selected hit in its
@@ -547,7 +579,8 @@ $('#briefing').addEventListener('click', (e) => {   // click a card to select it
   const sv = e.target.closest('[data-save]');
   if (sv) { toggleSaved(sv.dataset.save); return; }   // toggleSaved → renderSaved → syncSaveBtn updates this star
   const cp = e.target.closest('[data-copymd]'); if (cp) { copyBriefing(cp); return; }
-  if (e.target.closest('a.open')) return;
+  const ex = e.target.closest('[data-expand]'); if (ex) { toggleExpand(ex); return; }
+  if (e.target.closest('a.open') || e.target.closest('.hit-full')) return;
   const hit = e.target.closest('.hit'); if (hit) selectHit(hitEls().indexOf(hit));
 });
 

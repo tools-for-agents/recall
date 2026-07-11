@@ -151,3 +151,36 @@ export async function status() {
   stores.push(team);
   return { stores };
 }
+
+// Fuller context for a single briefing hit — the full note / page / code chunk
+// behind a result, read straight from the store (capped), so you can preview it
+// inline without leaving recall. Returns { source, ref, text, truncated, meta }.
+const EXPAND_CAP = 1600;
+export async function expand(source, ref) {
+  ref = String(ref || '');
+  const cap = (t) => { t = String(t || '').replace(/\r/g, ''); return { text: t.slice(0, EXPAND_CAP), truncated: t.length > EXPAND_CAP }; };
+  if (source === 'team') {
+    try {
+      const res = await fetch(`${hqUrl()}/api/memory?limit=200`, { signal: AbortSignal.timeout(800) });
+      if (res.ok) { const rows = await res.json(); const m = Array.isArray(rows) && rows.find((x) => x.id === ref);
+        if (m) return { source, ref, ...cap(m.content), meta: m.namespace || null }; }
+    } catch { /* platform down → null */ }
+    return { source, ref, text: null, truncated: false };
+  }
+  const store = STORES.find((s) => s.name === source);
+  if (!store) return { source, ref, text: null, truncated: false };
+  const path = store.db();
+  if (!existsSync(path)) return { source, ref, text: null, truncated: false };
+  const db = openRO(path);
+  if (!db) return { source, ref, text: null, truncated: false };
+  try {
+    if (source === 'brain') { const r = db.prepare('SELECT body FROM notes WHERE slug=? LIMIT 1').get(ref); if (r) return { source, ref, ...cap(r.body) }; }
+    else if (source === 'reading') { const r = db.prepare('SELECT markdown FROM pages WHERE url=? LIMIT 1').get(ref); if (r) return { source, ref, ...cap(r.markdown) }; }
+    else if (source === 'code') {
+      const i = ref.lastIndexOf(':'); const p = i >= 0 ? ref.slice(0, i) : ref; const line = (i >= 0 ? parseInt(ref.slice(i + 1), 10) : 1) || 1;
+      const r = db.prepare('SELECT body, CAST(start AS INTEGER) s, CAST("end" AS INTEGER) e FROM chunks WHERE path=? AND CAST(start AS INTEGER)<=? ORDER BY CAST(start AS INTEGER) DESC LIMIT 1').get(p, line);
+      if (r) return { source, ref, ...cap(r.body), meta: `lines ${r.s}–${r.e}` };
+    }
+  } catch { /* schema drift → null */ } finally { db.close(); }
+  return { source, ref, text: null, truncated: false };
+}
