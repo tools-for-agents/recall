@@ -129,7 +129,11 @@
   /* ── Main / briefing ─────────────────────────────────────── */
   .main { grid-area:main; overflow:auto; position:relative; }
   .briefing { max-width:820px; margin:0 auto; padding:22px 26px 80px; }
-  .brief-head { display:flex; align-items:baseline; gap:12px; font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  /* flex-wrap — the head carries a sentence plus six controls, and with no wrap the
+     last button (🧠 keep briefing) was pushed past the viewport edge and clipped:
+     a feature you could not click. The leading sentence takes the slack. */
+  .brief-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 12px; font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .brief-head > .bh-t { flex:1 1 260px; min-width:0; }
   .brief-head b { color:var(--txt); }
   .brief-head .kbd-hint { font-family:var(--mono); font-size:9.5px; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:1px 6px; letter-spacing:1px; white-space:nowrap; }
   .brief-head .copy-md { margin-left:10px; font-family:var(--mono); font-size:10px; color:var(--muted); background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:3px 9px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
@@ -193,6 +197,24 @@
   .hit .to-cortex:disabled { opacity:.65; cursor:default; }
   /* what's new since you last asked */
   /* a briefing that didn't reach every store must say so */
+  /* what the ceilings hid. Cooler than the missbar (amber = a store never answered;
+     this = a store answered and you weren't shown it) — a different failure, said differently. */
+  .wbar { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; padding:10px 13px; border-radius:11px;
+    font-size:12.5px; line-height:1.55; color:var(--txt);
+    background:color-mix(in srgb, var(--accent) 8%, transparent); border:1px solid color-mix(in srgb, var(--accent) 38%, transparent); }
+  .wbar .wb-i { color:var(--accent); font-size:15px; line-height:1.25; flex:none; }
+  .wbar > div { flex:1; }
+  .wbar b { color:var(--accent); }
+  .wb-per { display:flex; flex-wrap:wrap; gap:5px 8px; margin-top:7px; }
+  .wb-s { font-family:var(--mono); font-size:10.5px; color:var(--muted); padding:2px 7px; border-radius:5px;
+    background:var(--panel); border:1px solid color-mix(in srgb, var(--c) 40%, var(--line)); }
+  .wb-s b { color:var(--c); }
+  .wb-sil { margin-top:8px; padding-top:8px; border-top:1px dashed color-mix(in srgb, var(--accent) 30%, transparent); }
+  .wbar .wb-b { flex:none; align-self:center; font-family:var(--mono); font-size:10.5px; cursor:pointer;
+    color:var(--accent); background:transparent; border:1px solid var(--accent); border-radius:6px; padding:5px 10px; white-space:nowrap; }
+  .wbar .wb-b:hover { background:var(--accent); color:var(--bg); }
+  .wb-max { flex:none; align-self:center; max-width:170px; font-size:10.5px; color:var(--muted); line-height:1.4; }
+  .of { color:var(--muted); font-weight:400; }
   .missbar { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; padding:10px 13px; border-radius:11px;
     font-size:12.5px; line-height:1.5; color:var(--txt);
     background:rgba(245,166,35,.1); border:1px solid rgba(245,166,35,.42); }
@@ -483,10 +505,15 @@ $('#recent').addEventListener('click', (e) => {
 // ── Boot ─────────────────────────────────────────────────────────────────────
 (async () => {
   STATUS = await api('/api/status');
-  for (const s of STATUS.stores) {
-    if (!s.available) enabled.delete(s.store);   // only auto-enable available stores
-    if (s.web) WEB[s.store] = s.web.replace(/\/$/, '');
-  }
+  // NB: a store being down at boot must NOT quietly remove it from `enabled`.
+  // `enabled` is what you WANT asked; availability is a separate fact. Auto-
+  // disabling an unreachable store is the very lie this view exists to prevent —
+  // it turns "I could not reach the team" into "I chose not to ask the team", and
+  // the partial-answer warning then never fires. (It also desynced the UI from the
+  // server: `only` was compared against the *live* stores, so when all live stores
+  // were enabled no `only` param was sent, the server queried everything including
+  // the "disabled" one, it answered, and the header read `searched 4 of 3 stores`.)
+  for (const s of STATUS.stores) if (s.web) WEB[s.store] = s.web.replace(/\/$/, '');
   renderSources();
 })();
 
@@ -524,8 +551,13 @@ function toggleSource(store, refocus) {
   if (refocus) { const el = $(`#sources [data-store="${store}"]`); if (el) el.focus(); }   // keep keyboard focus on the row
   if ($('#q').value.trim()) runSearch($('#q').value.trim());
 }
+// An offline store stays toggleable: now that we no longer auto-disable it, opting
+// out has to be something you can actually DO — otherwise the partial-answer warning
+// is permanent and unactionable. Turning it off says "don't ask the team", which is
+// a real choice; leaving it on says "I still expect the team", which is the truth
+// that keeps the warning honest.
 $('#sources').addEventListener('click', (e) => {
-  const el = e.target.closest('.src'); if (!el || el.classList.contains('dead')) return;
+  const el = e.target.closest('.src'); if (!el) return;
   toggleSource(el.dataset.store, false);
 });
 // Dragging the slider fires continuously: paint the new budget instantly, but
@@ -564,14 +596,15 @@ function showWelcome() {
 
 async function runSearch(q) {
   pushRecent(q);   // remember every executed query (prefix-typing collapses to the latest)
-  const live = STATUS.stores.filter((s) => s.available).map((s) => s.store);
-  const only = live.filter((s) => enabled.has(s));
+  // Compare against ORDER, not the live stores: the server's default (no `only`)
+  // is "query every store", so anything short of all of them must be said out loud.
+  const only = ORDER.filter((s) => enabled.has(s));
   const tokens = budget();
   // k has to scale with the budget, or it — not the budget — is what binds, and
   // the slider would stop changing anything once k results fit.
   const k = Math.min(60, Math.max(10, Math.round(tokens / 90)));
   const params = new URLSearchParams({ q, k: String(k), tokens: String(tokens) });
-  if (only.length && only.length < live.length) params.set('only', only.join(','));
+  if (only.length && only.length < ORDER.length) params.set('only', only.join(','));
   const r = await api('/api/search?' + params.toString());
   // Diff BEFORE the empty-result exit: asking something that has no answer yet is
   // exactly the case where the answer arriving later should be flagged as new.
@@ -580,11 +613,15 @@ async function runSearch(q) {
   const b = $('#briefing'); b.hidden = false;
   if (!r.count) {
     $('#budget').textContent = '';
-    b.innerHTML = `<div class="empty2">No matches for “${esc(q)}” across ${only.length || live.length} store${(only.length || live.length) === 1 ? '' : 's'}.</div>`;
+    // Say how many stores actually ANSWERED, not how many you asked — "nothing in
+    // 4 stores" and "nothing in the 2 that were up" are different facts.
+    const answered = (r.searched || []).length;
+    b.innerHTML = askedHtml(r).warn
+      + `<div class="empty2">No matches for “${esc(q)}” across ${answered} store${answered === 1 ? '' : 's'}.</div>`;
     return;
   }
   const pct = Math.min(100, Math.round((r.tokens / tokens) * 100));
-  $('#budget').innerHTML = `<b>${r.count}</b> hits · <b>~${r.tokens}</b> / ${fmtTok(tokens)} tok`
+  $('#budget').innerHTML = `<b>${r.count}</b>${r.withheld ? `<span class="of"> of ${r.matched}</span>` : ''} hits · <b>~${r.tokens}</b> / ${fmtTok(tokens)} tok`
     + `<span class="bfill" title="${pct}% of the budget used"><i style="width:${pct}%"></i></span>`;
   lastBrief = { q, r };   // keep the raw briefing so it can be copied / re-laid-out
   b.innerHTML = briefingHtml(q, r);
@@ -638,9 +675,39 @@ function newBanner(q) {
     <b>${n}</b> new result${n === 1 ? '' : 's'} since you last asked this${fresh.since ? ` · ${agoTxt(fresh.since)}` : ''}
     <button class="nb-seen" data-markseen="${esc(q)}" title="Stop marking these as new">✓ mark seen</button></div>`;
 }
+// `searched 4 of 4` answers "did every store answer?" — it does NOT answer "did
+// you show me what they said". A store can answer, match 23 things, and be squeezed
+// out of the briefing entirely by the token budget or the result cap, and the header
+// above would still read "searched 4 of 4" with total confidence. That is the same
+// lie one level down, and it is the more dangerous one because nothing looks wrong.
+function withheldHtml(r) {
+  if (!r.withheld) return '';
+  const label = (s) => `${SRC[s]?.glyph || '•'} ${SRC[s]?.tool || s}`;
+  const per = ORDER.filter((s) => r.stores?.[s]?.withheld)
+    .map((s) => `<span class="wb-s" style="--c:${SRC[s]?.color || 'var(--muted)'}">${label(s)} <b>${r.stores[s].shown}</b> of ${r.stores[s].matched}</span>`).join('');
+  // The worst case, and the reason this bar exists: a whole store went dark.
+  const silent = (r.silent || []).length
+    ? `<div class="wb-sil"><b>${r.silent.map(label).join(', ')}</b> matched but showed you <b>nothing</b>. That store is <b>invisible</b> in this briefing — not empty.</div>`
+    : '';
+  // Raising the wrong ceiling changes nothing, so say which one bound.
+  const why = r.limited_by === 'budget'
+    ? `The <b>token budget</b> is what's holding them back — recall ranks each store and packs until the window is full.`
+    : `The <b>result cap</b> is what's holding them back — the budget still has room. (It scales with the budget, so widening lifts both.)`;
+  const maxed = tokBudget >= BMAX;
+  const fix = maxed
+    ? `<span class="wb-max">already at the widest budget — scope it to one store, or ask something narrower</span>`
+    : `<button class="wb-b" data-widen title="Double the budget and ask again">Widen to ${fmtTok(Math.min(BMAX, tokBudget * 2))}</button>`;
+  return `<div class="wbar">
+    <span class="wb-i">◔</span>
+    <div><b>${r.withheld} more result${r.withheld === 1 ? '' : 's'} matched</b> and are not in this briefing. ${why}
+      <span class="wb-per">${per}</span>${silent}</div>
+    ${fix}
+  </div>`;
+}
+
 function briefingHtml(q, r) {
   const asked = askedHtml(r);
-  return asked.warn + newBanner(q) + `<div class="brief-head">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b> results · ~<b>${r.tokens}</b> tokens · ${asked.count}
+  return asked.warn + withheldHtml(r) + newBanner(q) + `<div class="brief-head"><span class="bh-t">briefing for “<b>${esc(q)}</b>” · <b>${r.count}</b>${r.withheld ? ` <span class="of">of ${r.matched}</span>` : ''} results · ~<b>${r.tokens}</b> tokens · ${asked.count}</span>
       <span class="kbd-hint" title="Arrow keys to move through results, Enter to open the selected hit in its tool">↑↓ ↵</span>
       ${srcBreakdown(r.by_source)}<button class="group-btn${grouped ? ' on' : ''}" data-group title="${grouped ? 'Grouped by source — click for interleave' : 'Group hits by source'}" aria-label="Toggle group by source">${grouped ? '⊟ grouped' : '⊞ group'}</button><button class="save-btn${isSaved(q) ? ' on' : ''}" data-save="${esc(q)}" title="${isSaved(q) ? 'Saved — click to remove' : 'Save this search'}" aria-label="Save this search">${isSaved(q) ? '★ saved' : '☆ save'}</button><button class="copy-md" data-copymd title="Copy this briefing as markdown">⧉ markdown</button>${WEB.brain ? `<button class="keep-btn" data-keep title="Keep this whole briefing in cortex as one note">🧠 keep briefing</button>` : ''}</div>` +
     hitsHtml(r);
@@ -843,6 +910,8 @@ $('#briefing').addEventListener('click', async (e) => {   // click a card to sel
       $('#briefing').innerHTML = briefingHtml(lastBrief.q, lastBrief.r); selHit = -1; }
     return;
   }
+  const wd = e.target.closest('[data-widen]');
+  if (wd) { setBudget(tokBudget * 2); return; }   // setBudget re-runs the search at the new budget
   const rt = e.target.closest('[data-retry]');
   if (rt) {   // a store that was down may be up now — ask again, and refresh who's live
     const q = $('#q').value.trim();

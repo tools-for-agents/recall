@@ -20,6 +20,9 @@ const STORES = [
                  snippet(notes_fts, 3, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(notes_fts) AS score
           FROM notes_fts JOIN notes n ON n.slug = notes_fts.slug
           WHERE notes_fts MATCH ? ORDER BY score LIMIT ?`,
+    // How many this store ACTUALLY has — not how many fit the candidate window,
+    // and certainly not how many survived the budget. See `stores` in recall().
+    count_sql: `SELECT COUNT(*) n FROM notes_fts WHERE notes_fts MATCH ?`,
   },
   {
     name: 'reading', label: 'scout',
@@ -29,6 +32,7 @@ const STORES = [
                  snippet(pages_fts, 2, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(pages_fts) AS score
           FROM pages_fts JOIN pages p ON p.url = pages_fts.url
           WHERE pages_fts MATCH ? ORDER BY score LIMIT ?`,
+    count_sql: `SELECT COUNT(*) n FROM pages_fts WHERE pages_fts MATCH ?`,
   },
   {
     name: 'code', label: 'lens',
@@ -37,6 +41,7 @@ const STORES = [
     sql: `SELECT path AS title, path || ':' || CAST(start AS INTEGER) AS ref, lang AS meta,
                  snippet(chunks, 1, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(chunks) AS score
           FROM chunks WHERE chunks MATCH ? ORDER BY score LIMIT ?`,
+    count_sql: `SELECT COUNT(*) n FROM chunks WHERE chunks MATCH ?`,
   },
 ];
 
@@ -88,6 +93,7 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   const wanted = sources && sources.length ? new Set(sources) : null;
   const searched = [];
   const bySource = {};
+  const matchedBy = {};       // what each store actually HAS, before any of our ceilings
 
   for (const store of STORES) {
     if (wanted && !wanted.has(store.name)) continue;
@@ -101,12 +107,18 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
       bySource[store.name] = rows.map((r) => ({ source: store.name, title: r.title, ref: r.ref,
         meta: r.meta, excerpt: (r.excerpt || '').replace(/\s+/g, ' ').trim(),
         score: Math.round(r.score * 1000) / 1000 }));
+      // The candidate window (k*2) is itself a ceiling, so counting `rows` would
+      // under-report. Ask the store how many it really has.
+      try { matchedBy[store.name] = db.prepare(store.count_sql).get(m).n; }
+      catch { matchedBy[store.name] = rows.length; }
     } catch { /* schema drift / fts error → skip this store */ } finally { db.close(); }
   }
 
   if (!wanted || wanted.has('team')) {
     const team = await fetchTeam(query, Math.max(k * 2, 20));
-    if (team) { searched.push('team'); bySource.team = team; }
+    // agent-hq answers over HTTP with a LIKE search, so what it returned is all we
+    // can honestly claim to know it has.
+    if (team) { searched.push('team'); bySource.team = team; matchedBy.team = team.length; }
   }
 
   // Interleave round-robin across stores (scores aren't comparable across sources)
@@ -114,7 +126,7 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   for (const s in bySource) bySource[s].sort((a, b) => a.score - b.score);
   const order = ORDER.filter((s) => bySource[s]);
   const results = [];
-  let tokens = 0;
+  let tokens = 0, squeezed = 0;
   for (let i = 0; results.length < k; i++) {
     let progressed = false;
     for (const s of order) {
@@ -123,15 +135,39 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
       progressed = true;
       const tk = estTokens(hit.excerpt);
       if (tokens + tk <= max_tokens || results.length === 0) { results.push({ ...hit, tokens: tk }); tokens += tk; }
+      else squeezed++;      // it matched; the budget is the only reason you can't see it
       if (results.length >= k) break;
     }
     if (!progressed) break;
   }
+
   // per-source breakdown of what actually made it into the briefing — so the UI
   // can show how the federated result is composed (e.g. 4 brain · 3 code · 2 reading).
   const by_source = {};
   for (const r of results) by_source[r.source] = (by_source[r.source] || 0) + 1;
-  return { query, searched, count: results.length, tokens, results, by_source };
+
+  // What each store HAD versus what you were shown. Without this a briefing that
+  // returned 10 of 32 matches looks exactly like a briefing that found 10 things —
+  // and recall's whole promise is "you don't have to search the other four places",
+  // which is only true if it admits when it didn't show you everything.
+  const stores = {};
+  for (const s of searched) {
+    const matched = matchedBy[s] || 0;
+    const shown = by_source[s] || 0;
+    stores[s] = { shown, matched, withheld: Math.max(0, matched - shown) };
+  }
+  const matched = Object.values(stores).reduce((a, x) => a + x.matched, 0);
+  const withheld = Math.max(0, matched - results.length);
+  // Two ceilings hold results back and they have different fixes: raising the
+  // budget does nothing if `k` is what bound. Name the one that actually did it.
+  const limited_by = withheld === 0 ? null : squeezed > 0 ? 'budget' : 'k';
+  // The dangerous case: a store that matched and contributed NOTHING. The briefing
+  // still reports "searched 4 of 4 stores" — fully confident — while a whole
+  // corner of your memory is invisible. Say its name.
+  const silent = searched.filter((s) => stores[s].matched > 0 && stores[s].shown === 0);
+
+  return { query, searched, count: results.length, tokens, results, by_source,
+    stores, matched, withheld, limited_by, silent, budget: max_tokens, k };
 }
 
 // ── which stores are available right now ──────────────────────────────────────

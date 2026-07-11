@@ -31,6 +31,17 @@ try {
     for (const x of res.results)
       out(`\n${SIGIL[x.source] || '•'} [${x.source}] ${x.title}  (${x.ref})  score=${x.score}\n  ${x.excerpt}`);
     out(`\n— ${res.count} hits across [${res.searched.join(', ')}], ~${res.tokens} tokens —`);
+    // Never let a ceiling hide a store without saying so. A briefing that showed
+    // 10 of 32 must not look like a briefing that found 10.
+    if (res.withheld) {
+      const per = Object.entries(res.stores).filter(([, v]) => v.withheld)
+        .map(([s, v]) => `${s} ${v.shown}/${v.matched}`).join(', ');
+      out(`  ${res.withheld} more matched and are not shown (${per})`);
+      out(res.limited_by === 'budget'
+        ? `  the token budget bound — raise it with --tokens ${res.budget * 2}`
+        : `  the result cap bound — raise it with -k ${res.k * 2}`);
+      if (res.silent.length) out(`  ⚠ ${res.silent.join(', ')} matched but showed nothing — invisible here, not empty`);
+    }
   } else {
     out(`recall — one query across your whole memory (cortex + scout + lens)
 

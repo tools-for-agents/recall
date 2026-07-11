@@ -69,6 +69,51 @@ test('bad numeric args fall back to defaults instead of emptying the briefing', 
   assert.equal(big.count, good.count, 'k larger than the corpus just returns everything available');
 });
 
+// The lie one level below "searched 4 of 4": a store answers, matches plenty, and
+// gets squeezed out of the briefing entirely — while the header still reports full
+// coverage. "scout has nothing on this" and "scout's hits didn't fit" are not the
+// same sentence, and recall used to speak only the first one.
+test('a store can match and show you nothing — recall names it instead of looking complete', async () => {
+  const readingDb = join(dir, 'reading.db');
+  const d2 = new DatabaseSync(readingDb);
+  d2.exec(`CREATE TABLE pages (url TEXT PRIMARY KEY, title TEXT, markdown TEXT);
+           CREATE VIRTUAL TABLE pages_fts USING fts5(url UNINDEXED, title, markdown, tokenize='porter unicode61');`);
+  for (let i = 0; i < 4; i++) {
+    const url = `https://ex.com/${i}`, md = 'Retrieval augmented generation chunks, explained at some length.';
+    d2.prepare('INSERT INTO pages VALUES (?,?,?)').run(url, `Retrieval ${i}`, md);
+    d2.prepare('INSERT INTO pages_fts (url,title,markdown) VALUES (?,?,?)').run(url, `Retrieval ${i}`, md);
+  }
+  d2.close();
+
+  const prev = process.env.RECALL_SCOUT_DB;
+  process.env.RECALL_SCOUT_DB = readingDb;
+  try {
+    // A budget so tight only the top hit survives (the first is always let through —
+    // an empty briefing atop real matches would be the worst lie of all).
+    const tight = await r.recall('retrieval chunks', { k: 20, max_tokens: 1 });
+    assert.equal(tight.count, 1);
+    assert.equal(tight.limited_by, 'budget', 'the budget bound — raising k would change nothing');
+    assert.deepEqual(tight.silent, ['reading'],
+      'scout matched 4 pages and contributed none — that store is invisible, and must be NAMED');
+    assert.equal(tight.stores.reading.matched, 4);
+    assert.equal(tight.stores.reading.shown, 0);
+    assert.equal(tight.withheld, 4);
+
+    // Widen the budget and the invisible store comes back — the offer the UI makes is real.
+    const wide = await r.recall('retrieval chunks', { k: 20, max_tokens: 5000 });
+    assert.ok(wide.stores.reading.shown > 0, 'scout is visible again');
+    assert.equal(wide.silent.length, 0);
+    assert.equal(wide.withheld, 0);
+    assert.equal(wide.limited_by, null, 'nothing withheld → no ceiling named, no crying wolf');
+
+    // The result cap is a DIFFERENT ceiling with a different fix.
+    const capped = await r.recall('retrieval chunks', { k: 2, max_tokens: 5000 });
+    assert.equal(capped.count, 2);
+    assert.equal(capped.limited_by, 'k', 'nothing was squeezed by tokens — the cap is the ceiling');
+    assert.ok(capped.withheld > 0);
+  } finally { process.env.RECALL_SCOUT_DB = prev; }
+});
+
 test('status reports all four stores', async () => {
   const s = await r.status();
   assert.equal(s.stores.length, 4);
