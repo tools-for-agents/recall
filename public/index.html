@@ -224,7 +224,7 @@
     white-space:nowrap; transition:background .13s, color .13s; }
   .hit .to-cortex:hover { background:color-mix(in srgb, var(--brain) 24%, transparent); }
   .hit .to-cortex.done { color:var(--brain); border-color:var(--brain); }
-  .hit .to-cortex:disabled { opacity:.65; cursor:default; }
+  .hit .to-cortex:disabled {  cursor:default; opacity:1 !important; color:var(--muted) !important; background:var(--panel-2) !important; border-color:var(--line) !important; cursor:not-allowed;}
   /* what's new since you last asked */
   /* a briefing that didn't reach every store must say so */
   /* what the ceilings hid. Cooler than the missbar (amber = a store never answered;
@@ -270,7 +270,7 @@
     border:1px solid color-mix(in srgb, var(--brain) 34%, transparent); border-radius:8px; padding: 4px 8px; cursor:pointer;
     transition:background .13s; }
   .keep-btn:hover, .keep-btn.ok { background:color-mix(in srgb, var(--brain) 24%, transparent); border-color:var(--brain); }
-  .keep-btn:disabled { opacity:.7; cursor:default; }
+  .keep-btn:disabled {  cursor:default; opacity:1 !important; color:var(--muted) !important; background:var(--panel-2) !important; border-color:var(--line) !important; cursor:not-allowed;}
   .hit.fresh { border-color:color-mix(in srgb, var(--accent) 40%, var(--line)); }
   .newchip { font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; font-weight:700;
     color:var(--bg); background:var(--accent); border-radius:12px; padding: 1px 8px; flex:none; }
