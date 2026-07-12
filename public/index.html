@@ -134,8 +134,19 @@
   .src { display:flex; align-items:center; gap: 12px; padding: 12px 12px; border:1px solid var(--line); border-radius:12px; margin-bottom: 8px; cursor:pointer; transition:border-color .14s, background .14s, opacity .14s; position:relative; overflow:hidden; }
   .src::before { content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--c); opacity:.85; }
   .src:hover { background:var(--panel-2); }
-  .src.off { opacity:.42; }
-  .src.dead { opacity:.34; cursor:not-allowed; }
+  /* A DEAD SOURCE'S NAME IS THE ONE THING YOU NEED TO READ.
+     These were `opacity:.42` and `opacity:.34` — the whole row faded to a third, which
+     took the text down to 1.95:1. The row that tells you WHICH store is offline was the
+     least readable thing on the page, and no check could see it, because opacity does not
+     inherit as a computed value: the text still reported its declared colour at full
+     strength. (Fixed in iris@4d22c89; this is what it found.)
+     Say "off" with COLOUR and the dot, not by fading the words out of existence. */
+  .src.off, .src.dead { background:transparent; }
+  .src.off .nm, .src.dead .nm,
+  .src.off .st, .src.dead .st,
+  .src.off .tool, .src.dead .tool { color:var(--muted); }
+  .src.off::before, .src.dead::before { background:var(--faint); opacity:.5; }
+  .src.dead { cursor:not-allowed; }
   .src .g { font-size:20px; filter:drop-shadow(0 0 8px var(--c)); }
   .src .tx { flex:1; min-width:0; }
   .src .nm { font-weight:600; font-size:12px; }
