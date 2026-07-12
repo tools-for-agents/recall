@@ -35,6 +35,15 @@ try {
     for (const x of res.results)
       out(`\n${SIGIL[x.source] || '•'} [${x.source}] ${x.title}  (${x.ref})  score=${x.score}\n  ${x.excerpt}`);
     out(`\n— ${res.count} hits across [${res.searched.join(', ')}], ~${res.tokens} tokens —`);
+    // An empty store is not a finding. Say so before the agent concludes it knows nothing.
+    if (res.empty?.length) {
+      const all = res.empty.length === res.searched.length;
+      const list = res.empty.length > 1
+        ? res.empty.slice(0, -1).join(', ') + ' and ' + res.empty.at(-1)
+        : res.empty[0];
+      out(`  ⚠ ${list} ${res.empty.length === 1 ? 'is' : 'are'} EMPTY (0 entries)`
+        + (all ? ` — every store you pointed me at holds nothing. This is not "you know nothing about that";\n    it is "there is nothing here to know it from". Check CORTEX_VAULT / SCOUT_DB / LENS_DB.` : ''));
+    }
     // Never let a ceiling hide a store without saying so. A briefing that showed
     // 10 of 32 must not look like a briefing that found 10.
     if (res.withheld) {

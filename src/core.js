@@ -94,6 +94,7 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   const searched = [];
   const bySource = {};
   const matchedBy = {};       // what each store actually HAS, before any of our ceilings
+  const corpusBy = {};        // how much is IN each store at all — an empty store is not an answer
 
   for (const store of STORES) {
     if (wanted && !wanted.has(store.name)) continue;
@@ -102,6 +103,16 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
     const db = openRO(path);
     if (!db) continue;
     searched.push(store.name);
+    // How big was the haystack? Opening a missing store CREATES it — every sibling does
+    // this — so a store that has never held anything still exists on disk, and recall
+    // reported it as "searched". A briefing that says "0 hits across [brain, reading]"
+    // when both are EMPTY is not an answer, it is a confident wrong one: the agent hears
+    // "you know nothing about this", when the truth is "there is nothing here to know it
+    // from". Count the corpus, and say so.
+    try {
+      const table = store.name === 'code' ? 'files' : store.name === 'reading' ? 'pages' : 'notes';
+      corpusBy[store.name] = db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
+    } catch { corpusBy[store.name] = null; }
     try {
       const rows = db.prepare(store.sql).all(m, Math.max(k * 2, 20));
       bySource[store.name] = rows.map((r) => ({ source: store.name, title: r.title, ref: r.ref,
@@ -154,7 +165,7 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   for (const s of searched) {
     const matched = matchedBy[s] || 0;
     const shown = by_source[s] || 0;
-    stores[s] = { shown, matched, withheld: Math.max(0, matched - shown) };
+    stores[s] = { shown, matched, withheld: Math.max(0, matched - shown), entries: corpusBy[s] ?? null };
   }
   const matched = Object.values(stores).reduce((a, x) => a + x.matched, 0);
   const withheld = Math.max(0, matched - results.length);
@@ -165,9 +176,13 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   // still reports "searched 4 of 4 stores" — fully confident — while a whole
   // corner of your memory is invisible. Say its name.
   const silent = searched.filter((s) => stores[s].matched > 0 && stores[s].shown === 0);
+  // Stores that exist and hold nothing. "0 hits across [brain, reading]" reads as a
+  // finding; "brain and reading are empty" is the actual situation, and only one of them
+  // tells you the vault path is wrong.
+  const empty = searched.filter((s) => stores[s].entries === 0);
 
   return { query, searched, count: results.length, tokens, results, by_source,
-    stores, matched, withheld, limited_by, silent, budget: max_tokens, k };
+    stores, matched, withheld, limited_by, silent, empty, budget: max_tokens, k };
 }
 
 // ── which stores are available right now ──────────────────────────────────────

@@ -133,3 +133,34 @@ test('expand returns the full note body behind a hit, and null for an unknown re
   const absent = await r.expand('reading', 'https://x');   // scout store not configured in this test
   assert.equal(absent.text, null, 'an absent store degrades to null');
 });
+
+// ── An empty store is not a finding ─────────────────────────────────────────────
+test('recall says when the stores it searched are EMPTY, instead of reporting no hits', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  // Exactly what happens in the wild: every sibling CREATES its store on open, so a tool
+  // that has never held anything still exists on disk. recall then searched it and
+  // reported "0 hits across [brain, reading]" — which reads as a finding about the world
+  // rather than a fact about the configuration. The agent hears "you know nothing about
+  // this" when the truth is "there is nothing here to know it from".
+  const dir = mkdtempSync(join(tmpdir(), 'recall-empty-'));
+  const brain = join(dir, 'brain.db');
+  const db = new DatabaseSync(brain);
+  db.exec(`CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, body TEXT);
+           CREATE VIRTUAL TABLE notes_fts USING fts5(slug UNINDEXED, title, tags, body, tokenize='porter unicode61');`);
+  db.close();   // real store, real tables, zero rows
+
+  const prev = process.env.RECALL_CORTEX_DB;
+  process.env.RECALL_CORTEX_DB = brain;
+  const fresh = await import(`../src/core.js?empty=${Date.now()}`);
+  const res = await fresh.recall('retrieval');
+  process.env.RECALL_CORTEX_DB = prev;
+  rmSync(dir, { recursive: true, force: true });
+
+  assert.ok(res.searched.includes('brain'), 'the store exists, so it was searched');
+  assert.equal(res.stores.brain.entries, 0, 'and it holds nothing — the size of the haystack is reported');
+  assert.deepEqual(res.empty, ['brain'], 'and it is NAMED as empty, so "0 hits" cannot be mistaken for an answer');
+});
