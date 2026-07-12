@@ -350,8 +350,8 @@
         <circle class="core" cx="130" cy="100" r="13" />
         <text x="130" y="106" text-anchor="middle" font-size="16" fill="#0b0d12">◎</text>
       </svg>
-      <h2>One query. All your memory.</h2>
-      <p>recall federates a single search across every store an agent keeps — your second brain, the team's memory, everything you've read, and your code — and returns one token-budgeted briefing.</p>
+      <h2 id="heroTitle">One query. All your memory.</h2>
+      <p id="heroCopy">recall federates a single search across every store an agent keeps — your second brain, the team's memory, everything you've read, and your code — and returns one token-budgeted briefing.</p>
       <div class="legend">
         <span><i style="color:var(--brain)"></i>🧠 cortex · brain</span>
         <span><i style="color:var(--team)"></i>🛰️ agent-hq · team</span>
@@ -562,6 +562,30 @@ function renderSources() {
   const byStore = Object.fromEntries(STATUS.stores.map((s) => [s.store, s]));
   const live = STATUS.stores.filter((s) => s.available).length;
   $('#srcCount').textContent = live + ' / 4 live';
+
+  // AN EMPTY STATE THAT DOES NOT TELL YOU HOW TO FILL IT IS AN EMPTY STATE YOU HAVE NOT
+  // FINISHED WRITING.
+  //
+  // On first run every source reads "offline", the counter reads 0 / 4 live, and the hero
+  // cheerfully explained what recall WOULD do across stores it cannot see. It never said
+  // the one thing the user needs: WHERE THE STORES COME FROM. The CLI has said so all
+  // along ("set CORTEX_VAULT / SCOUT_DB / LENS_DB"); the page a new user actually opens
+  // said nothing at all. It passed every check, and it was a dead end.
+  const title = $('#heroTitle'), copy = $('#heroCopy');
+  if (title && copy) {
+    if (live === 0) {
+      title.textContent = 'No stores yet — here is where they come from';
+      copy.innerHTML = 'recall does not hold anything of its own; it federates the stores its siblings build. '
+        + 'Point it at them and they come alive:<br><br>'
+        + '<code>CORTEX_VAULT</code> your notes · <code>SCOUT_DB</code> what you have read · '
+        + '<code>LENS_DB</code> your code · <code>HQ_URL</code> the team\'s memory'
+        + '<br><br>Each one appears above the moment it exists. Nothing here is broken — there is simply nothing to search yet.';
+    } else {
+      title.textContent = 'One query. All your memory.';
+      copy.textContent = 'recall federates a single search across every store an agent keeps — your second brain, '
+        + "the team's memory, everything you've read, and your code — and returns one token-budgeted briefing.";
+    }
+  }
   $('#sources').innerHTML = ORDER.map((store) => {
     const meta = SRC[store]; const s = byStore[store] || {};
     const dead = !s.available; const off = !dead && !enabled.has(store);
