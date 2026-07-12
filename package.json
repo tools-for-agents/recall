@@ -1,10 +1,46 @@
 {
-  "name": "recall-agent",
+  "name": "@tools-for-agents/recall",
   "version": "0.1.0",
-  "description": "Federated, token-budgeted recall across an agent's knowledge stores — cortex (second brain), scout (reading) and lens (code) — in one query. Zero dependencies.",
+  "description": "Federated recall across an agent's brain, team, reading and code, in one budgeted query.",
   "type": "module",
-  "bin": { "recall": "src/cli.js" },
-  "engines": { "node": ">=22" },
-  "scripts": { "serve": "node src/cli.js serve", "mcp": "node mcp/mcp-server.js", "test": "node --test" },
-  "license": "MIT"
+  "bin": {
+    "recall": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "serve": "node src/cli.js serve",
+    "mcp": "node mcp/mcp-server.js",
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "mcpName": "io.github.tools-for-agents/recall",
+  "files": [
+    "src",
+    "mcp",
+    "public",
+    "tokens.json",
+    "action.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tools-for-agents/recall.git"
+  },
+  "homepage": "https://tools-for-agents.github.io",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "ai-agents",
+    "agent-tools",
+    "claude",
+    "llm",
+    "zero-dependency",
+    "recall"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

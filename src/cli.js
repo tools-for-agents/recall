@@ -23,6 +23,10 @@ try {
   } else if (cmd === 'serve') {
     const { serve } = await import('./server.js');
     serve({ port: +(flags['--port'] || process.env.RECALL_PORT || 7980) });
+  } else if (cmd === 'mcp') {
+    // stdio JSON-RPC. The server starts on import: `npx @tools-for-agents/recall mcp`
+    // NOTE: must come BEFORE the catch-all below, which treats any word as a query.
+    await import('../mcp/mcp-server.js');
   } else if (cmd && cmd !== 'help' && cmd !== '--help') {
     const query = [cmd, ...positionals].join(' ');
     const res = await r.recall(query, { k: +(flags['-k'] || 10), max_tokens: +(flags['--tokens'] || 2000),
