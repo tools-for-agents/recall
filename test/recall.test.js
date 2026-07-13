@@ -217,3 +217,51 @@ test('nothing the MCP server can reach is allowed to print to stdout', async () 
   assert.deepEqual(offenders, [],
     'stdout is the protocol — one stray print desyncs every agent session:\n  ' + offenders.join('\n  '));
 });
+
+// ── `k` is a promise too, and nothing was holding it ────────────────────────────────
+test('k is a ceiling, not a suggestion — with two stores answering, asking for k gets k', async () => {
+  // Mutation testing found this: flip `results.length >= k` to `>` and recall hands back
+  // k+1 hits with the whole suite still green. The token budget WAS pinned by a test; the
+  // result COUNT never was. Both are promises the caller plans around — an agent that asks
+  // for 3 and is handed 4 has had its context budget spent for it, without being asked.
+  //
+  // It can only overshoot when SEVERAL stores are answering, because the overshoot happens
+  // inside the round-robin across them — and federating several stores is recall's entire
+  // reason to exist, so this was the one shape its tests never had. My first two attempts
+  // at this test COULD NOT FAIL: one used the single-store fixture, and one seeded bodies
+  // whose function names (`retrieval0`) the porter tokenizer reads as a single token, so
+  // searching "retrieval" never matched them and the second store contributed nothing.
+  // A test that cannot fail is decoration. Both were thrown away.
+  const codeDb = join(dir, 'code.db');
+  const cdb = new DatabaseSync(codeDb);
+  cdb.exec(`CREATE TABLE files (path TEXT PRIMARY KEY, lang TEXT, lines INTEGER, bytes INTEGER, mtime INTEGER, indexed_at TEXT);
+            CREATE VIRTUAL TABLE chunks USING fts5(path, body, lang UNINDEXED, start UNINDEXED, "end" UNINDEXED, tokenize='porter unicode61');`);
+  const insF = cdb.prepare('INSERT OR IGNORE INTO files VALUES (?,?,?,?,?,?)');
+  const insC = cdb.prepare('INSERT INTO chunks (path, body, lang, start, "end") VALUES (?,?,?,?,?)');
+  for (let i = 0; i < 20; i++) {
+    insF.run(`/repo/src/ceil${i}.js`, 'javascript', 3, 90, 0, new Date(0).toISOString());
+    insC.run(`/repo/src/ceil${i}.js`, `function ceil${i}() { return retrieval(chunks, ${i}); }`, 'javascript', 1, 3);
+  }
+  cdb.close();
+
+  // Store paths are read per call, so light the second store up here and put the world
+  // back afterwards — three other tests in this file rely on `code` being ABSENT, and a
+  // fixture change that breaks three tests to fix one is not a fix.
+  const saved = process.env.RECALL_LENS_DB;
+  process.env.RECALL_LENS_DB = codeDb;
+  try {
+    // Prove the setup FIRST, with a k big enough that both stores get a turn. (At k=1 only
+    // one source can contribute by definition, so asserting "two sources" inside the loop
+    // fails by construction — my third mistake on this one test, caught by the precondition
+    // I had put there precisely to catch it.)
+    const probe = await r.recall('retrieval', { k: 10, max_tokens: 100000 });
+    const contributing = new Set(probe.results.map((x) => x.source));
+    assert.ok(contributing.size >= 2,
+      `precondition: both stores must actually CONTRIBUTE hits, else the ceiling can never be overshot (got ${[...contributing]})`);
+
+    for (const k of [1, 2, 3]) {
+      const res = await r.recall('retrieval', { k, max_tokens: 100000 });
+      assert.ok(res.results.length <= k, `asked for ${k}, got ${res.results.length}`);
+    }
+  } finally { process.env.RECALL_LENS_DB = saved; }
+});
