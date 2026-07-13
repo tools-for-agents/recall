@@ -34,6 +34,21 @@ test('recall returns hits from an available store', async () => {
   assert.ok(res.tokens <= 2000);
 });
 
+test('recall finds non-ASCII content — the query tokenizes like the unicode61 store index', async () => {
+  // The stores index with unicode61 (every script); recall's query tokenizer kept only
+  // [A-Za-z0-9] and so asked every federated store a ghost query for any non-Latin term.
+  const d = new DatabaseSync(brainDb);
+  d.prepare('INSERT INTO notes VALUES (?,?,?,?)').run('seyahat', 'İstanbul', 'note', 'İstanbul ve Москва ve 日本語 notları.');
+  d.prepare('INSERT INTO notes_fts (slug,title,tags,body) VALUES (?,?,?,?)')
+    .run('seyahat', 'İstanbul', 'tr', 'İstanbul ve Москва ve 日本語 notları.');
+  d.close();
+  for (const q of ['İstanbul', 'Москва', '日本語']) {
+    const res = await r.recall(q);
+    assert.ok(res.results.some((x) => x.ref === 'seyahat' && x.source === 'brain'),
+      `recall must find the note for a ${q} query`);
+  }
+});
+
 test('recall skips absent stores and unreachable team without hanging', async () => {
   const res = await r.recall('retrieval');
   assert.ok(!res.searched.includes('reading'));

@@ -46,7 +46,10 @@ const STORES = [
 ];
 
 function ftsQuery(q) {
-  const terms = String(q).match(/[A-Za-z0-9_]+/g) || [];
+  // \p{L}\p{N} (not [A-Za-z0-9]) so a query in any script — Turkish, Cyrillic, CJK —
+  // tokenizes the SAME way each store's unicode61 index did; ASCII-only stripped every
+  // non-Latin term to nothing and every federated store answered a ghost query.
+  const terms = String(q).match(/[\p{L}\p{N}_]+/gu) || [];
   return terms.length ? terms.map((t) => `"${t}"`).join(' OR ') : null;
 }
 
@@ -67,7 +70,7 @@ async function hqMemory(term, limit) {
 // agent-hq's memory search is a single LIKE, so probe per term (in parallel) and
 // merge — matching the OR-over-terms recall the other stores give.
 async function fetchTeam(query, limit) {
-  const terms = [...new Set((String(query).match(/[A-Za-z0-9_]{2,}/g) || []).map((t) => t.toLowerCase()))].slice(0, 6);
+  const terms = [...new Set((String(query).match(/[\p{L}\p{N}_]{2,}/gu) || []).map((t) => t.toLowerCase()))].slice(0, 6);
   const probes = await Promise.all((terms.length ? terms : [String(query)]).map((t) => hqMemory(t, limit)));
   if (probes.every((p) => p === null)) return null; // platform not running
   const seen = new Map();
