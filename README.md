@@ -85,6 +85,7 @@ A zero-dependency **unified-briefing console**: one query, one interleaved brief
 | Tool | Use it to… |
 |---|---|
 | `recall_search` | Load a token-budgeted briefing across your brain, reading and code in one call. Use it **first** when starting a task. |
+| `recall_expand` | Get the fuller context behind one hit — the whole note / page / code chunk. |
 | `recall_status` | See which stores are available and how many entries each holds. |
 
 ## How it works
@@ -111,7 +112,7 @@ Seven zero-dependency, MCP-native tools that form one loop:
 | 👁 | [iris](https://github.com/tools-for-agents/iris) | see — look at what you built, before you claim it works |
 
 **Reading this as an agent?** [`/llms.txt`](https://tools-for-agents.github.io/llms.txt) is the map, and
-[`/tools.json`](https://tools-for-agents.github.io/tools.json) hands you all **67 MCP tools** — every name, every
+[`/tools.json`](https://tools-for-agents.github.io/tools.json) hands you all **70 MCP tools** — every name, every
 description, every install command — in **one fetch**, without cloning anything.
 
 MIT licensed.
