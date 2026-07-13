@@ -229,3 +229,41 @@ test('expand gives you the record you asked for — or nothing, never somebody e
     } finally { process.env.RECALL_CORTEX_DB = prevBrain; }
   } finally { process.env.RECALL_HQ_URL = prevHq; }
 });
+
+// THE STATIC SERVER MUST NEVER SERVE ITS OWN SOURCE, HOWEVER THE PATH IS SPELLED.
+//
+// The guard was startsWith(PUBLIC) with no trailing separator, so <repo>/public also prefixes
+// <repo>/public-secrets — a sibling. That is a real weakness in the guard, and it is fixed
+// (require PUBLIC + sep). But it turns out NOT to be reachable through this HTTP server: url.pathname
+// is WHATWG-normalised, so a real `..` is collapsed before serveStatic ever sees it, and an encoded
+// slash stays encoded (so `..%2f` is a literal filename, not a traversal). The iris shot-viewer hole
+// WAS reachable because it read `id` from a query PARAMETER — decoded, never path-normalised. A path
+// and a query value are not the same input.
+//
+// So this is a REGRESSION GUARD, honestly labelled: it passes today on both the old and new guard,
+// and it exists to fail the day someone decodes %2f, reads a path from a query param, or otherwise
+// hands serveStatic a string that still carries a traversal. It goes over a RAW SOCKET so `..` and
+// `%2f` reach the wire intact — fetch() would sanitise them first.
+test('no raw path — dotdot, encoded slash, or sibling spelling — leaks the server source', async (t) => {
+  const { createConnection } = await import('node:net');
+  const server = createRecallServer();
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => server.close());
+  const port = server.address().port;
+
+  const rawGet = (rawPath) => new Promise((resolve, reject) => {
+    const sock = createConnection(port, '127.0.0.1', () =>
+      sock.write(`GET ${rawPath} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n`));
+    let buf = ''; sock.on('data', (d) => { buf += d; });
+    sock.on('end', () => resolve(buf)); sock.on('error', reject);
+  });
+
+  for (const attack of ['/../src/server.js', '/..%2fsrc%2fserver.js', '/%2e%2e/src/server.js', '/../package.json']) {
+    const resp = await rawGet(attack);
+    assert.doesNotMatch(resp, /createRecallServer|"dependencies"|import \{/,
+      `a raw request escaped the public directory: ${attack}\n${resp.split('\r\n')[0]}`);
+  }
+  // and the real index is still served
+  const ok = await rawGet('/index.html');
+  assert.match(ok.split('\r\n')[0], /200/, 'the index is still served');
+});
