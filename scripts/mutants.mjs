@@ -47,6 +47,12 @@ const CANARIES = [
     find: '  for (const s in bySource) bySource[s].sort((a, b) => a.score - b.score);',
     into: '  for (const s in bySource) bySource[s].sort((a, b) => a.score + b.score);',
   },
+  {
+    why: 'expand means GIVE ME EXACTLY THIS RECORD — handing back the one next to it is the confident wrong answer in its purest form',
+    file: 'src/core.js',
+    find: 'rows.find((x) => x.id === ref)',
+    into: 'rows.find((x) => x.id !== ref)',
+  },
 ];
 
 const run = () => spawnSync('npm', ['test'], { encoding: 'utf8', timeout: 300_000 }).status;

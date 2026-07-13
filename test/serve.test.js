@@ -164,3 +164,68 @@ test('the team briefing is ranked by importance — the comparator is the only t
     process.env.RECALL_CORTEX_DB = prevBrain;
   }
 });
+
+// expand() IS "GIVE ME EXACTLY THIS RECORD", AND NOTHING WAS CHECKING THE "EXACTLY".
+//
+// It is how you read the full note / page / chunk behind a briefing hit without leaving recall.
+// Zero tests touched it. The team branch matches the record with `rows.find(x => x.id === ref)`,
+// and a mutant turned that into `!==` — which returns THE FIRST RECORD THAT IS NOT THE ONE YOU
+// ASKED FOR, handed back under the ref you asked for. The suite stayed green.
+//
+// That is the confident-wrong-answer class in its purest form: you ask to see hit X, you are
+// shown hit Y, and nothing about the answer invites a second look.
+test('expand gives you the record you asked for — or nothing, never somebody else\'s', async (t) => {
+  const { createServer } = await import('node:http');
+  const hq = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify([
+      { id: 'mem-a', title: 'A', namespace: 'ns', content: 'AAA the content of memory A', importance: 3 },
+      { id: 'mem-b', title: 'B', namespace: 'ns', content: 'BBB the content of memory B', importance: 3 },
+    ]));
+  });
+  await new Promise((r) => hq.listen(0, '127.0.0.1', r));
+  t.after(() => hq.close());
+
+  const prevHq = process.env.RECALL_HQ_URL;
+  process.env.RECALL_HQ_URL = `http://127.0.0.1:${hq.address().port}`;
+  try {
+    const { expand } = await import(`../src/core.js?expand=${Date.now()}`);
+
+    const b = await expand('team', 'mem-b');
+    assert.match(b.text, /BBB/, 'you asked for mem-b and you get mem-b');
+    assert.doesNotMatch(b.text, /AAA/, 'AND NOT MEMORY A — a record you did not ask for is not an answer');
+
+    // …and a ref that exists nowhere gives you NOTHING, not the nearest thing lying around.
+    const ghost = await expand('team', 'mem-does-not-exist');
+    assert.equal(ghost.text, null,
+      'a ref that matches nothing must come back empty — handing over some other record instead is '
+      + 'how an agent ends up reasoning about a document it never asked to see');
+
+    // …and the local store, by the same rule.
+    //
+    // NB: this needs its own brain, because THE FIXTURE AT THE TOP OF THIS FILE HAS NO `body`
+    // COLUMN — it models cortex's notes table as (slug, title, type). Real cortex stores the body
+    // there, and expand() reads it. So `expand('brain', …)` could never have worked against that
+    // fixture, which is exactly why nobody ever tested it: the fake was faithful enough to SEARCH
+    // and not faithful enough to READ. A faithful fake has to be faithful to the column you are
+    // about to select.
+    const { DatabaseSync: DB } = await import('node:sqlite');
+    const realish = join(dir, 'expand-brain.db');
+    const d3 = new DB(realish);
+    d3.exec(`CREATE TABLE notes (slug TEXT PRIMARY KEY, title TEXT, type TEXT, body TEXT);
+             CREATE VIRTUAL TABLE notes_fts USING fts5(slug UNINDEXED, title, tags, body, tokenize='porter unicode61');`);
+    d3.prepare('INSERT INTO notes VALUES (?,?,?,?)').run('rag', 'RAG', 'concept', 'Retrieval augmented generation.');
+    d3.prepare('INSERT INTO notes VALUES (?,?,?,?)').run('other', 'Other', 'note', 'Something else entirely.');
+    d3.close();
+
+    const prevBrain = process.env.RECALL_CORTEX_DB;
+    process.env.RECALL_CORTEX_DB = realish;
+    try {
+      const { expand: expand2 } = await import(`../src/core.js?expandbrain=${Date.now()}`);
+      const note = await expand2('brain', 'rag');
+      assert.match(note.text, /Retrieval augmented generation/, 'the brain hands back the note you named');
+      assert.doesNotMatch(note.text, /Something else entirely/, 'and not the one sitting next to it');
+      assert.equal((await expand2('brain', 'no-such-slug')).text, null, 'and nothing at all for a slug that is not there');
+    } finally { process.env.RECALL_CORTEX_DB = prevBrain; }
+  } finally { process.env.RECALL_HQ_URL = prevHq; }
+});
