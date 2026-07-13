@@ -121,3 +121,46 @@ test('searched: a store that answered nothing is not the same as a store that ne
     assert.ok(!only.searched.includes('brain'), 'a store you excluded is not asked');
   } finally { server.close(); }
 });
+
+// RECALL'S ONE JOB IS TO RANK — AND ONLY ONE OF ITS FOUR STORES NEEDS IT TO.
+//
+// The three local stores come back from SQLite already sorted (`ORDER BY score`), so the JS
+// comparator does nothing for them, and a test built on a cortex brain passes whether the sort is
+// right or wrong. I wrote that test first. It was a decoration, and I only found out by flipping
+// the comparator and watching it stay green.
+//
+// TEAM is the one that needs it. agent-hq's memory search is a single LIKE, probed once per term
+// and merged — so the rows arrive in whatever order they were found in, scored only by
+// `-(importance)`. The comparator is the ONLY thing that puts the important memory first.
+//
+// And it matters most exactly there: the briefing is token-budgeted, so a bad order does not
+// reorder the answer — IT THROWS THE GOOD ANSWER AWAY. The agent never learns it existed.
+test('the team briefing is ranked by importance — the comparator is the only thing that does it', async (t) => {
+  const { createServer } = await import('node:http');
+  // A fake agent-hq. It answers the LIKE probe in the WORST possible order: trivia first.
+  const hq = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify([
+      { id: 'mem-trivia', title: 'Trivia',    namespace: 'misc', content: 'sharding came up at lunch', importance: 1 },
+      { id: 'mem-vital',  title: 'The rule',  namespace: 'eng',  content: 'NEVER reshard during business hours', importance: 5 },
+      { id: 'mem-middle', title: 'A note',    namespace: 'eng',  content: 'sharding is by tenant', importance: 3 },
+    ]));
+  });
+  await new Promise((r) => hq.listen(0, '127.0.0.1', r));
+  t.after(() => hq.close());
+
+  const prevHq = process.env.RECALL_HQ_URL, prevBrain = process.env.RECALL_CORTEX_DB;
+  process.env.RECALL_HQ_URL = `http://127.0.0.1:${hq.address().port}`;
+  process.env.RECALL_CORTEX_DB = join(dir, 'absent-brain.db');   // team only, so nothing else fills the budget
+  try {
+    const { recall } = await import(`../src/core.js?team=${Date.now()}`);
+    const r = await recall('sharding', { k: 1, max_tokens: 4000 });
+    assert.equal(r.results.length, 1, 'we asked for exactly one hit');
+    assert.equal(r.results[0].ref, 'mem-vital',
+      `with room for ONE hit you must get the most important memory — got "${r.results[0].ref}". `
+      + 'The budget does not reorder a bad ranking; it DELETES what the ranking put last.');
+  } finally {
+    process.env.RECALL_HQ_URL = prevHq;
+    process.env.RECALL_CORTEX_DB = prevBrain;
+  }
+});

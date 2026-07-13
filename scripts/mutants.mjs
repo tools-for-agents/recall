@@ -41,6 +41,12 @@ const CANARIES = [
     find: '      else squeezed++;      // it matched; the budget is the only reason you can\'t see it',
     into: '      else void 0;',
   },
+  {
+    why: 'the briefing must be RANKED — the budget does not reorder a bad ranking, it DELETES what the ranking put last',
+    file: 'src/core.js',
+    find: '  for (const s in bySource) bySource[s].sort((a, b) => a.score - b.score);',
+    into: '  for (const s in bySource) bySource[s].sort((a, b) => a.score + b.score);',
+  },
 ];
 
 const run = () => spawnSync('npm', ['test'], { encoding: 'utf8', timeout: 300_000 }).status;
