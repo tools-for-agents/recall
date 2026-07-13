@@ -23,6 +23,16 @@ const tools = [
     run: (a) => r.recall(a.query, a),
   },
   {
+    name: 'recall_expand',
+    description: 'Get the FULLER context behind a single recall_search hit — the whole note, page or code chunk it came from, read straight from the source store (capped). A recall_search excerpt is a preview; when one hit is the one you need, expand it here instead of switching to cortex_read / scout_fetch / lens_read and having to know which store it lives in. Pass the hit\'s `source` and `ref` exactly as recall_search returned them.',
+    inputSchema: { type: 'object', properties: {
+      source: { type: 'string', enum: ['brain', 'team', 'reading', 'code'],
+        description: 'Which store the hit came from (the `source` field on a recall_search result)' },
+      ref: { type: 'string', description: 'The hit\'s `ref` (a note slug, a page url, or a code path:line)' },
+    }, required: ['source', 'ref'] },
+    run: (a) => r.expand(a.source, a.ref),
+  },
+  {
     name: 'recall_status',
     description: 'Show which knowledge stores are available and how many entries each holds (cortex / agent-hq / scout / lens).',
     inputSchema: { type: 'object', properties: {} },
@@ -43,6 +53,7 @@ const tools = [
 //                   (the web; the output of arbitrary code) → scrutinise what comes back
 const ANNOTATIONS = {
   recall_search: {"readOnlyHint": true, "openWorldHint": true},
+  recall_expand: {"readOnlyHint": true, "openWorldHint": true},
   recall_status: {"readOnlyHint": true, "openWorldHint": false},
 };
 
