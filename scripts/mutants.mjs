@@ -53,6 +53,12 @@ const CANARIES = [
     find: 'rows.find((x) => x.id === ref)',
     into: 'rows.find((x) => x.id !== ref)',
   },
+  {
+    why: 'the team store defaults to OFFLINE — recall must not claim a store is live when agent-hq is down',
+    file: 'src/core.js',
+    find: "  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };",
+    into: "  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: true, entries: null };",
+  },
 ];
 
 // spawnSync returns status:null when IT kills the child for exceeding the timeout — a TIMEOUT,

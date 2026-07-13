@@ -35,6 +35,13 @@ test('serve: status, federated search, and the stats summary', async () => {
     assert.equal(status.stores.length, 4, 'status reports all four stores');
     assert.equal(status.stores.find((s) => s.store === 'brain').available, true, 'brain is available');
     assert.equal(status.stores.find((s) => s.store === 'reading').available, false, 'absent store is offline');
+    // THE TEAM STORE IS THE ONE THAT LIVES OVER HTTP, and its availability defaults to false and
+    // only becomes true if agent-hq actually answers. The test's HQ_URL points at an unreachable
+    // host, so team MUST read offline — nothing was checking that, and a mutant defaulting it to
+    // `available: true` would have recall claim the team store is live while the platform is down.
+    // That is cycle 27's dead-end: a status screen that says a store is there when it is not.
+    assert.equal(status.stores.find((s) => s.store === 'team').available, false,
+      'the team store is offline when agent-hq is unreachable — recall must not claim a dead store is live');
     // each store exposes its web-view base url so the console can build cross-tool links
     assert.ok(status.stores.every((s) => typeof s.web === 'string' && /^https?:\/\//.test(s.web)), 'every store carries a web url');
     assert.match(status.stores.find((s) => s.store === 'code').web, /7900/, 'lens web url defaults to :7900');
@@ -266,4 +273,26 @@ test('no raw path — dotdot, encoded slash, or sibling spelling — leaks the s
   // and the real index is still served
   const ok = await rawGet('/index.html');
   assert.match(ok.split('\r\n')[0], /200/, 'the index is still served');
+});
+
+// …AND THE TEAM STORE READS LIVE WHEN AGENT-HQ ACTUALLY ANSWERS.
+// One direction alone is a half-truth: offline-when-down must be matched by live-when-up, or the
+// status could just always say "offline" and still pass the test above.
+test('the team store is reported available when agent-hq responds', async (t) => {
+  const { createServer } = await import('node:http');
+  const hq = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('[]');   // reachable, even if it has nothing — Array.isArray([]) is true
+  });
+  await new Promise((r) => hq.listen(0, '127.0.0.1', r));
+  t.after(() => hq.close());
+
+  const prev = process.env.RECALL_HQ_URL;
+  process.env.RECALL_HQ_URL = `http://127.0.0.1:${hq.address().port}`;
+  try {
+    const { status } = await import(`../src/core.js?teamstatus=${Date.now()}`);
+    const st = await status();
+    const team = st.stores.find((s) => s.store === 'team');
+    assert.equal(team.available, true, 'a reachable agent-hq means the team store is LIVE');
+  } finally { process.env.RECALL_HQ_URL = prev; }
 });
