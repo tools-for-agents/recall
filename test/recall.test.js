@@ -314,3 +314,33 @@ test('ONE oversized row in a store recall does not own must not hang the whole b
   assert.equal(normal.oversized, undefined, 'a normal row is not flagged oversized');
   assert.match(normal.excerpt, /⟦/, 'and still gets snippet() highlighting — behaviour is unchanged');
 });
+
+test('a store that FAILED is not a store with NO RESULTS — it must never be swallowed', async () => {
+  // recall used to `catch { /* schema drift → skip this store */ }`. But `searched` already named the
+  // store, so a store whose query THREW came back as "searched · 0 matched · 1 entry" — which an agent
+  // reads as "your code index has a file in it and your term is NOT there." The truth was that the
+  // query blew up. Worse: the haystack size (added so an EMPTY answer would be honest) makes THIS
+  // answer look authoritative. A store that is empty is a fact about the world; a store that BROKE is
+  // a fact about the tool, and only one of them means the briefing is incomplete.
+  const bad = join(dir, 'drifted.db');
+  const d = new DatabaseSync(bad);
+  d.exec(`CREATE TABLE files (path TEXT);
+          CREATE VIRTUAL TABLE chunks USING fts5(path, wrongcol);`);   // no 'body' → the query throws
+  d.prepare('INSERT INTO files VALUES (?)').run('a.js');
+  d.close();
+
+  const saved = process.env.RECALL_LENS_DB;
+  process.env.RECALL_LENS_DB = bad;
+  try {
+    const res = await r.recall('retrieval');
+    assert.ok(!res.searched.includes('code'), 'a store that threw must NOT be claimed as searched');
+    assert.ok(res.failed && res.failed.code, 'it is reported as FAILED, not silently dropped');
+    assert.match(res.failed.code, /no such column|error|sql/i, 'naming why, so it is not a dead end');
+    assert.ok(res.searched.includes('brain'), 'and the healthy stores still answer');
+    assert.ok(res.results.length > 0, 'the briefing still comes back — one broken store is not a total loss');
+  } finally { process.env.RECALL_LENS_DB = saved; }
+
+  // And it must not cry wolf: a healthy recall has no `failed` key at all.
+  const ok = await r.recall('retrieval');
+  assert.equal('failed' in ok, false, 'a healthy briefing carries no failure report');
+});

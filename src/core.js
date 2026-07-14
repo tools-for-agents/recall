@@ -127,6 +127,7 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   if (!m) return { query, count: 0, tokens: 0, results: [] };
   const wanted = sources && sources.length ? new Set(sources) : null;
   const searched = [];
+  const failed = {};             // a store whose query THREW — never silently counted as empty
   const bySource = {};
   const matchedBy = {};       // what each store actually HAS, before any of our ceilings
   const corpusBy = {};        // how much is IN each store at all — an empty store is not an answer
@@ -162,7 +163,20 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
       // under-report. Ask the store how many it really has.
       try { matchedBy[store.name] = db.prepare(store.count_sql).get(m).n; }
       catch { matchedBy[store.name] = rows.length; }
-    } catch { /* schema drift / fts error → skip this store */ } finally { db.close(); }
+    } catch (e) {
+      // 🔑 A STORE THAT FAILED IS NOT A STORE WITH NO RESULTS.
+      // This used to swallow the error and move on — but `searched` already names the store, so recall
+      // reported "searched code · 0 matched · 1 entry", which an agent reads as "your code index has a
+      // file in it and your term is NOT there." The truth was that the query THREW (schema drift, a
+      // corrupt index, an fts5 build without the extension). Worse, the haystack size added in Cycle 15
+      // to make an empty answer honest makes THIS one more convincing: it looks authoritative.
+      // Name the failure, and do not let the store masquerade as searched-and-empty.
+      failed[store.name] = String(e.message || e).slice(0, 160);
+      delete matchedBy[store.name];
+      delete bySource[store.name];
+      const i = searched.indexOf(store.name);
+      if (i >= 0) searched.splice(i, 1);
+    } finally { db.close(); }
   }
 
   if (!wanted || wanted.has('team')) {
@@ -221,8 +235,12 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   // tells you the vault path is wrong.
   const empty = searched.filter((s) => stores[s].entries === 0);
 
-  return { query, searched, count: results.length, tokens, results, by_source,
+  // `failed` is only present when a store actually broke. A briefing that says nothing about a store
+  // it could not query is a briefing that quietly covers less than it claims.
+  const out = { query, searched, count: results.length, tokens, results, by_source,
     stores, matched, withheld, limited_by, silent, empty, budget: max_tokens, k };
+  if (Object.keys(failed).length) out.failed = failed;
+  return out;
 }
 
 // ── which stores are available right now ──────────────────────────────────────

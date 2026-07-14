@@ -35,6 +35,18 @@ try {
     for (const x of res.results)
       out(`\n${SIGIL[x.source] || '•'} [${x.source}] ${x.title}  (${x.ref})  score=${x.score}\n  ${x.excerpt}`);
     out(`\n— ${res.count} hits across [${res.searched.join(', ')}], ~${res.tokens} tokens —`);
+    // 🔑 A STORE THAT FAILED IS NOT A STORE WITH NO RESULTS. It used to be swallowed and counted as
+    // searched-and-empty, so the briefing said "searched code · 0 matched · 1 entry" — which reads as
+    // "your code index has a file and your term is NOT in it." It has to be louder than an empty store,
+    // because a store that is empty is a fact about the world; a store that BROKE is a fact about the
+    // tool, and only one of them means the answer above is incomplete.
+    if (res.failed) {
+      for (const [name, why] of Object.entries(res.failed)) {
+        out(`  ✗ ${name} COULD NOT BE SEARCHED — ${why}\n`
+          + `    This is NOT "nothing matched there". That store contributed NOTHING to the briefing above,\n`
+          + `    so treat these results as INCOMPLETE until it is fixed.`);
+      }
+    }
     // An empty store is not a finding. Say so before the agent concludes it knows nothing.
     if (res.empty?.length) {
       const all = res.empty.length === res.searched.length;
