@@ -9,6 +9,34 @@ import { existsSync } from 'node:fs';
 const estTokens = (s) => Math.ceil((s || '') .length / 4);
 const env = (k) => process.env[k];
 
+// SQLite's snippet() is superlinear in the size of the document it excerpts: 3ms on a 16KB row,
+// 792ms at 256KB, and 142 SECONDS on a 4MB one — while the MATCH that found it costs 1ms. So ONE
+// oversized row hangs every recall whose term it contains, with no error and no answer.
+//
+// recall is where this bites HARDEST and where it cannot be fixed upstream. recall federates over
+// stores IT DOES NOT OWN — it opens cortex's, scout's and lens's SQLite files read-only and runs its
+// OWN query — so no cap at any sibling's write() reaches it, and fixing cortex's search() did not
+// fix this: recall never calls it. What the vault holds is the user's business (a cortex vault is
+// Obsidian-compatible; a lens index chunks whatever is in the repo, and a minified bundle or a big
+// JSON is ONE enormous chunk). recall must survive whatever it is pointed at.
+//
+// CASE short-circuits in SQLite, so snippet() is never evaluated past the cap. instr() is a plain C
+// scan (2ms on the same 4MB body) so an oversized row still gets a REAL window around a REAL match
+// rather than a head-of-document fob-off — and when the porter tokenizer matched by stem and no
+// literal window exists, the row says so instead of passing its head off as the matching passage.
+const SNIPPET_MAX = 64 * 1024; // bounds snippet() at ~30ms worst case; every real row is far below
+
+// One shape, built once. Three hand-copied variants is how two of seven published ports came out
+// wrong: what is typed three times is wrong in one of them.
+const excerptSql = (fts, col, n) => `
+  length(${fts}.${col}) AS chars,
+  CASE WHEN length(${fts}.${col}) <= ? THEN snippet(${fts}, ${n}, '⟦', '⟧', ' … ', 14)
+       ELSE substr(${fts}.${col}, MAX(1, instr(lower(${fts}.${col}), lower(?)) - 90), 240) END AS excerpt,
+  CASE WHEN length(${fts}.${col}) <= ? THEN 1
+       ELSE instr(lower(${fts}.${col}), lower(?)) > 0 END AS located`;
+// Bind order follows the ? order in the text above: cap, probe, cap, probe.
+const excerptArgs = (probe) => [SNIPPET_MAX, probe, SNIPPET_MAX, probe];
+
 // Each store: where its DB lives (overridable) and how to query its FTS table.
 // Every row is normalised to { title, ref, meta, excerpt, score } (bm25: lower = better).
 const STORES = [
@@ -17,7 +45,7 @@ const STORES = [
     db: () => env('RECALL_CORTEX_DB') || (env('CORTEX_VAULT') ? `${env('CORTEX_VAULT')}/.cortex/index.db` : './vault/.cortex/index.db'),
     web: () => env('RECALL_CORTEX_URL') || 'http://localhost:7800',
     sql: `SELECT n.title AS title, n.slug AS ref, n.type AS meta,
-                 snippet(notes_fts, 3, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(notes_fts) AS score
+                 ${excerptSql('notes_fts', 'body', 3)}, bm25(notes_fts) AS score
           FROM notes_fts JOIN notes n ON n.slug = notes_fts.slug
           WHERE notes_fts MATCH ? ORDER BY score LIMIT ?`,
     // How many this store ACTUALLY has — not how many fit the candidate window,
@@ -29,7 +57,7 @@ const STORES = [
     db: () => env('RECALL_SCOUT_DB') || env('SCOUT_DB') || './.scout/cache.db',
     web: () => env('RECALL_SCOUT_URL') || 'http://localhost:7950',
     sql: `SELECT p.title AS title, p.url AS ref, 'web' AS meta,
-                 snippet(pages_fts, 2, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(pages_fts) AS score
+                 ${excerptSql('pages_fts', 'markdown', 2)}, bm25(pages_fts) AS score
           FROM pages_fts JOIN pages p ON p.url = pages_fts.url
           WHERE pages_fts MATCH ? ORDER BY score LIMIT ?`,
     count_sql: `SELECT COUNT(*) n FROM pages_fts WHERE pages_fts MATCH ?`,
@@ -39,11 +67,15 @@ const STORES = [
     db: () => env('RECALL_LENS_DB') || env('LENS_DB') || './.lens/index.db',
     web: () => env('RECALL_LENS_URL') || 'http://localhost:7900',
     sql: `SELECT path AS title, path || ':' || CAST(start AS INTEGER) AS ref, lang AS meta,
-                 snippet(chunks, 1, '⟦', '⟧', ' … ', 14) AS excerpt, bm25(chunks) AS score
+                 ${excerptSql('chunks', 'body', 1)}, bm25(chunks) AS score
           FROM chunks WHERE chunks MATCH ? ORDER BY score LIMIT ?`,
     count_sql: `SELECT COUNT(*) n FROM chunks WHERE chunks MATCH ?`,
   },
 ];
+
+// The literal term we probe an oversized row with. The FTS query ORs several terms; the first is
+// the one to try, and when it does not occur literally `located` says so.
+const probeTerm = (q) => (String(q).match(/[\p{L}\p{N}_]+/gu) || [''])[0];
 
 function ftsQuery(q) {
   // \p{L}\p{N} (not [A-Za-z0-9]) so a query in any script — Turkish, Cyrillic, CJK —
@@ -117,10 +149,15 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
       corpusBy[store.name] = db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
     } catch { corpusBy[store.name] = null; }
     try {
-      const rows = db.prepare(store.sql).all(m, Math.max(k * 2, 20));
-      bySource[store.name] = rows.map((r) => ({ source: store.name, title: r.title, ref: r.ref,
-        meta: r.meta, excerpt: (r.excerpt || '').replace(/\s+/g, ' ').trim(),
-        score: Math.round(r.score * 1000) / 1000 }));
+      const rows = db.prepare(store.sql).all(...excerptArgs(probeTerm(query)), m, Math.max(k * 2, 20));
+      bySource[store.name] = rows.map((r) => {
+        const hit = { source: store.name, title: r.title, ref: r.ref,
+          meta: r.meta, excerpt: (r.excerpt || '').replace(/\s+/g, ' ').trim(),
+          score: Math.round(r.score * 1000) / 1000 };
+        // Say so, rather than let the caller take this for the usual best-matching window.
+        if (r.chars > SNIPPET_MAX) { hit.oversized = true; hit.chars = r.chars; hit.excerpt_is_match = !!r.located; }
+        return hit;
+      });
       // The candidate window (k*2) is itself a ceiling, so counting `rows` would
       // under-report. Ask the store how many it really has.
       try { matchedBy[store.name] = db.prepare(store.count_sql).get(m).n; }

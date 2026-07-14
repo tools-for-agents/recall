@@ -280,3 +280,37 @@ test('k is a ceiling, not a suggestion — with two stores answering, asking for
     }
   } finally { process.env.RECALL_LENS_DB = saved; }
 });
+
+test('ONE oversized row in a store recall does not own must not hang the whole briefing', async () => {
+  // snippet() is superlinear in the size of the row it excerpts: 3ms at 16KB, 792ms at 256KB, and
+  // 142 SECONDS at 4MB — while the MATCH that found it costs 1ms. Pointed at a real vault holding
+  // one 4MB note, recall took 188,877ms — over THREE MINUTES — and then answered. It never errors;
+  // it just stops, which for the tool an agent is told to call FIRST is the worst possible shape.
+  //
+  // recall is where this cannot be fixed upstream: it federates over stores it DOES NOT OWN, opening
+  // cortex's/scout's/lens's SQLite files read-only and running its OWN query. No cap at any sibling's
+  // write() reaches it, and fixing cortex's search() did not fix this — recall never calls it.
+  const big = new DatabaseSync(brainDb);
+  const body = 'zzhugetopic lorem ipsum dolor sit amet '.repeat(Math.floor((1024 * 1024) / 39));
+  big.prepare('INSERT INTO notes VALUES (?,?,?,?)').run('huge', 'The Huge One', 'note', body);
+  big.prepare('INSERT INTO notes_fts (slug,title,tags,body) VALUES (?,?,?,?)').run('huge', 'The Huge One', '', body);
+  big.close();
+
+  const t0 = Date.now();
+  const res = await r.recall('zzhugetopic');
+  const ms = Date.now() - t0;
+  assert.ok(ms < 3000, `recall over a 1MB row must stay bounded — took ${ms}ms (10.7s+ unfixed)`);
+
+  const hit = res.results.find((x) => x.ref === 'huge');
+  assert.ok(hit, 'and the row is still FOUND — bounding the excerpt must not drop the result');
+  assert.equal(hit.oversized, true, 'an oversized row says so');
+  assert.ok(hit.chars > 1e6, 'and reports its real size');
+  assert.equal(hit.excerpt_is_match, true, 'instr() still found a REAL window around a REAL match');
+  assert.match(hit.excerpt, /zzhugetopic/, 'so the excerpt actually contains the term');
+
+  // A normal row is untouched: still snippet()-highlighted, still unflagged.
+  const normal = (await r.recall('retrieval chunks')).results.find((x) => x.ref === 'rag');
+  assert.ok(normal, 'normal rows still match');
+  assert.equal(normal.oversized, undefined, 'a normal row is not flagged oversized');
+  assert.match(normal.excerpt, /⟦/, 'and still gets snippet() highlighting — behaviour is unchanged');
+});
