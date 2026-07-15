@@ -114,6 +114,9 @@ async function fetchTeam(query, limit) {
 // Priority order for the round-robin interleave (your brain first, then the team,
 // then what you've read, then code).
 const ORDER = ['brain', 'team', 'reading', 'code'];
+// The stores recall can federate. Derived from STORES (+ the HTTP-only 'team') so it never drifts
+// from what actually gets searched.
+const VALID_SOURCES = new Set([...STORES.map((s) => s.name), 'team']);
 
 // ── federated recall ───────────────────────────────────────────────────────────
 export async function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
@@ -123,6 +126,18 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   // unguarded NaN k returns zero results even when there are matches.
   k = Number.isFinite(+k) && +k > 0 ? Math.floor(+k) : 10;
   max_tokens = Number.isFinite(+max_tokens) && +max_tokens > 0 ? Math.floor(+max_tokens) : 2000;
+  // A `sources` filter names a FINITE, KNOWN set. A name outside it (a typo — 'brian' for 'brain')
+  // is not a query with no results, it is a MISTAKE — and silently returning nothing reads as "your
+  // knowledge does not contain that" when the truth is "you asked for a store that is not there".
+  // The MCP schema declares the enum but the CLI's `--only` and any direct caller do not; enforce it
+  // at the one place every path goes through, and list the real stores so the fix is in the sentence.
+  if (Array.isArray(sources)) {
+    const bad = sources.filter((s) => !VALID_SOURCES.has(s));
+    if (bad.length) {
+      throw new Error(`no such store${bad.length > 1 ? 's' : ''}: ${bad.map((s) => `"${s}"`).join(', ')}`
+        + ` — recall federates over ${[...VALID_SOURCES].join(', ')}. Check the spelling, or drop --only to search them all.`);
+    }
+  }
   const m = ftsQuery(query);
   if (!m) return { query, count: 0, tokens: 0, results: [] };
   const wanted = sources && sources.length ? new Set(sources) : null;

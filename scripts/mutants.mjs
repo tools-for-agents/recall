@@ -24,6 +24,12 @@ import { spawnSync } from 'node:child_process';
 
 const CANARIES = [
   {
+    why: 'a mistyped source ("brian") is a MISTAKE, not an empty briefing — without this it silently searches nothing and reads as "not in your knowledge"',
+    file: 'src/core.js',
+    find: '    if (bad.length) {',
+    into: '    if (false) {',
+  },
+  {
     why: 'the token budget is a CEILING — a briefing that blows it defeats the entire point of recall',
     file: 'src/core.js',
     find: '      if (tokens + tk <= max_tokens || results.length === 0) { results.push({ ...hit, tokens: tk }); tokens += tk; }',

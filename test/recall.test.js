@@ -66,6 +66,23 @@ test('sources filter restricts which stores are queried', async () => {
   assert.ok(!res.searched.includes('brain'));
 });
 
+// `sources` names a finite, known set. A typo ('brian') is a MISTAKE, not a query with no results —
+// silently returning nothing reads as "your knowledge does not contain that". Say so, name the stores.
+test('a mistyped source is a named error, not a silent empty briefing', async () => {
+  await assert.rejects(() => r.recall('retrieval', { sources: ['brian'] }),
+    (e) => {
+      assert.match(e.message, /no such store/i, 'it says the store does not exist');
+      assert.match(e.message, /brian/, 'and names the one that was wrong');
+      assert.match(e.message, /brain.*reading.*code.*team|team/, 'and lists the real stores');
+      return true;
+    });
+  // one bad name among good ones still errors, and names the bad one specifically
+  await assert.rejects(() => r.recall('retrieval', { sources: ['brain', 'readng'] }), /readng/);
+  // Over-fire guard: valid sources and no filter at all must NOT throw.
+  await assert.doesNotReject(() => r.recall('retrieval', { sources: ['brain', 'code'] }));
+  await assert.doesNotReject(() => r.recall('retrieval'));
+});
+
 test('bad numeric args fall back to defaults instead of emptying the briefing', async () => {
   const good = await r.recall('retrieval chunks');
   assert.ok(good.count > 0, 'baseline has hits');
