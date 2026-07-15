@@ -77,6 +77,12 @@ const CANARIES = [
     find: '      failed[store.name] = String(e.message || e).slice(0, 160);',
     into: '      void e;',
   },
+  {
+    why: 'expand() rejects an unknown source too — recall() names a mistyped "brian" (Cycle 106) but the drill-down silently returned null-text, so the SAME typo was loud in one call and read as "nothing there" in the next',
+    file: 'src/core.js',
+    find: '  if (!VALID_SOURCES.has(source)) {',
+    into: '  if (false) {',
+  },
 ];
 
 // spawnSync returns status:null when IT kills the child for exceeding the timeout — a TIMEOUT,

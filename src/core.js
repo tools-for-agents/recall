@@ -282,6 +282,15 @@ export async function status() {
 const EXPAND_CAP = 1600;
 export async function expand(source, ref) {
   ref = String(ref || '');
+  // A source names a FINITE, KNOWN set (the same one recall's --only draws from). A typo ('reeding') is a
+  // MISTAKE, not a ref with no content — and expand's null-text below is the honest "not found" signal for a
+  // real-but-empty ref, so an unknown source silently masquerades as "nothing there". recall() already
+  // rejects this (Cycle 106); the drill-down path has to agree, or the SAME typo is loud in one call and
+  // silent in the next. Name the value and the real stores, exactly as recall does.
+  if (!VALID_SOURCES.has(source)) {
+    throw new Error(`no such store: "${source}" — recall federates over ${[...VALID_SOURCES].join(', ')}. `
+      + `Check the spelling.`);
+  }
   const cap = (t) => { t = String(t || '').replace(/\r/g, ''); return { text: t.slice(0, EXPAND_CAP), truncated: t.length > EXPAND_CAP }; };
   if (source === 'team') {
     try {

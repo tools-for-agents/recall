@@ -237,6 +237,17 @@ test('expand gives you the record you asked for — or nothing, never somebody e
   } finally { process.env.RECALL_HQ_URL = prevHq; }
 });
 
+test('expand refuses an unknown source — the finite-set rule recall() enforces, in the drill-down too', async () => {
+  const { expand } = await import(`../src/core.js?expandsrc=${Date.now()}`);
+  // A source names a finite, known set. A typo is a MISTAKE, not a ref with no content — and expand's
+  // null-text is the honest signal for a real-but-empty ref, so a bad source must not masquerade as one.
+  // recall() rejects 'brian' (Cycle 106); the drill-down must agree, or the same typo is loud then silent.
+  await assert.rejects(() => expand('reeding', 'http://x'), /no such store: "reeding"/, 'a misspelled source is named, not silently empty');
+  await assert.rejects(() => expand('brian', 'slug'), /recall federates over/, 'and it lists the real stores');
+  // over-fire guard: a VALID source whose ref is simply not there is the honest empty — null text, not a throw
+  await assert.doesNotReject(() => expand('brain', 'no-such-slug'), 'a real source with a missing ref is not an error');
+});
+
 // THE STATIC SERVER MUST NEVER SERVE ITS OWN SOURCE, HOWEVER THE PATH IS SPELLED.
 //
 // The guard was startsWith(PUBLIC) with no trailing separator, so <repo>/public also prefixes
