@@ -95,6 +95,52 @@ jobs:
   # anything at all, and real bugs were living in it: `scout serve` crashed at startup on a
   # machine with no cache, and lens told a brand-new user their index was "stale" when they
   # had never made one. Both states are audited now, because they are different states.
+  # 🔑 THE PRODUCT IS THE BRIEFING, AND NO GATE HAD EVER RENDERED ONE.
+  #
+  # `look` above carries the comment "a UI gate that has never seen a row of real data is
+  # not a gate; it is a screenshot of an empty room" — and it is right, and it seeds the
+  # stores, and the landing page it audits genuinely has data on it. But recall's ONE job
+  # is: one query across cortex+scout+lens → a single token-budgeted briefing. That view
+  # needs a QUERY, and nothing in this file ever typed one. `states` poses .blocked/.off on
+  # the LANDING page; `first-run` audits the empty state. The briefing — the hits, the
+  # budget bar, the "what is MISSING from this briefing" banner, every source badge — shipped
+  # unrendered by anything.
+  #
+  # It cost exactly what you would expect: .kbd-hint ("↑↓ ↵", the one affordance that says
+  # this briefing is keyboard-drivable) sat at 4.35:1 on light, under the 4.5 this kit
+  # DECLARES, on every light-theme briefing recall ever drew.
+  #
+  # The gate that fixed the empty room never walked into the next one.
+  look-brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Serve it, THEN prove the query has something to brief
+        run: |
+          node scripts/seed.js ./.recall-seed
+          RECALL_CORTEX_DB=./.recall-seed/brain.db RECALL_SCOUT_DB=./.recall-seed/reading.db RECALL_LENS_DB=./.recall-seed/code.db RECALL_HQ_URL=http://127.0.0.1:9 node src/cli.js serve &
+          for i in $(seq 30); do curl -sf http://localhost:7980/api/stats >/dev/null && break; sleep 1; done
+          n=$(curl -sf "http://localhost:7980/api/search?q=agent" | node -pe "JSON.parse(require('fs').readFileSync(0)).count ?? 0")
+          echo "the query the gate drives returns: count=$n"
+          test "$n" -gt 0 || { echo "::error::the seeded query briefs 0 results — iris would audit an EMPTY briefing, which is the exact failure the look job's own comment warns about"; exit 1; }
+      - uses: tools-for-agents/iris@main
+        with:
+          url: http://localhost:7980/
+          viewports: phone,tablet,desktop
+          name: recall-brief
+          tokens: kit      # the kit's ONE design system — iris/tokens.json, not a copy
+          strict: true     # drift is a regression now; a gate is what keeps it from creeping back
+          # WAIT FOR THE CONDITION, NOT FOR A DURATION. `setTimeout(1500)` is a bet on the
+          # runner being fast, and it is the reason a sibling gate fails on a loaded machine
+          # while passing here. Poll for the hits, and if they never come, say so — a --pre
+          # that throws makes iris report "the state was never reached and NOTHING was
+          # audited", instead of quietly grading the landing page and calling it a briefing.
+          pre: >-
+            const until=async(f,ms,what)=>{const t=Date.now()+ms;while(Date.now()<t){if(f())return true;await new Promise(r=>setTimeout(r,100));}throw new Error('waited '+ms+'ms and '+what);};const q=document.querySelector('#q');if(!q) throw new Error('recall has no query field — a briefing starts at a query');q.value='agent';q.dispatchEvent(new Event('input',{bubbles:true}));await until(()=>document.querySelectorAll('.hit').length>0,20000,'the query rendered NO hits — this would be an audit of an empty briefing');await until(()=>document.querySelector('.brief-head'),20000,'the briefing header never rendered')
+
   first-run:
     runs-on: ubuntu-latest
     steps:
