@@ -87,6 +87,13 @@ jobs:
           name: recall
           tokens: kit      # the kit's ONE design system — iris/tokens.json, not a copy
           strict: true     # drift is a regression now; a gate is what keeps it from creeping back
+          # A HOVER STATE IS CSS NOBODY HAS EVER LOOKED AT. Each source row RAISES under the
+          # pointer (.src:hover paints --panel-2) and the source's own brand colour did not
+          # survive the lift: "scout" read 4.29:1 on light — under the 4.5 this kit DECLARES —
+          # on every hovered row, in a green build. JS cannot pose :hover; it is the browser's
+          # own. Selectors iris names as matching nothing here live on the briefing: that is
+          # look-brief's job, and it says so rather than passing quietly.
+          hover: '.brief-head .copy-md, .brief-head .group-btn, .brief-head .save-btn, .hit .hit-expand, .hit .open, .hit .to-cortex, .keep-btn, .missbar .mb-r, .newbar .nb-seen, .recent .chip, .recent .clr, .src, .svd, .svd .svx, .theme-btn, .wbar .wb-b, .xtk a, .qfield .kbd'
 
   # THE EMPTY STATE IS THE ONE STATE EVERY USER SEES FIRST.
   #
@@ -133,6 +140,13 @@ jobs:
           name: recall-brief
           tokens: kit      # the kit's ONE design system — iris/tokens.json, not a copy
           strict: true     # drift is a regression now; a gate is what keeps it from creeping back
+          # A HOVER STATE IS CSS NOBODY HAS EVER LOOKED AT. Each source row RAISES under the
+          # pointer (.src:hover paints --panel-2) and the source's own brand colour did not
+          # survive the lift: "scout" read 4.29:1 on light — under the 4.5 this kit DECLARES —
+          # on every hovered row, in a green build. JS cannot pose :hover; it is the browser's
+          # own. Selectors iris names as matching nothing here live on the briefing: that is
+          # look-brief's job, and it says so rather than passing quietly.
+          hover: '.brief-head .copy-md, .brief-head .group-btn, .brief-head .save-btn, .hit .hit-expand, .hit .open, .hit .to-cortex, .keep-btn, .missbar .mb-r, .newbar .nb-seen, .recent .chip, .recent .clr, .src, .svd, .svd .svx, .theme-btn, .wbar .wb-b, .xtk a, .qfield .kbd'
           # WAIT FOR THE CONDITION, NOT FOR A DURATION. `setTimeout(1500)` is a bet on the
           # runner being fast, and it is the reason a sibling gate fails on a loaded machine
           # while passing here. Poll for the hits, and if they never come, say so — a --pre
