@@ -39,6 +39,13 @@ const excerptArgs = (probe) => [SNIPPET_MAX, probe, SNIPPET_MAX, probe];
 
 // Each store: where its DB lives (overridable) and how to query its FTS table.
 // Every row is normalised to { title, ref, meta, excerpt, score } (bm25: lower = better).
+//
+// 🔑 bm25 score IS NOT UNIQUE, so ORDER BY score alone is not a defined order — two rows with the
+// same term frequencies and length tie, and a tie falls back to rowid, which a re-index/re-sync of
+// the underlying store changes. Each query tie-breaks on the row's stable identity: n.slug for
+// cortex notes, p.url for scout pages, (path, start) for lens chunks — the JOINed ones qualified
+// so the column is not ambiguous. Same class of fix that swept the sibling stores themselves; here
+// it keeps recall's federated briefing from reordering under a store that reindexed beneath it.
 const STORES = [
   {
     name: 'brain', label: 'cortex',
@@ -47,7 +54,7 @@ const STORES = [
     sql: `SELECT n.title AS title, n.slug AS ref, n.type AS meta,
                  ${excerptSql('notes_fts', 'body', 3)}, bm25(notes_fts) AS score
           FROM notes_fts JOIN notes n ON n.slug = notes_fts.slug
-          WHERE notes_fts MATCH ? ORDER BY score LIMIT ?`,
+          WHERE notes_fts MATCH ? ORDER BY score, n.slug LIMIT ?`,
     // How many this store ACTUALLY has — not how many fit the candidate window,
     // and certainly not how many survived the budget. See `stores` in recall().
     count_sql: `SELECT COUNT(*) n FROM notes_fts WHERE notes_fts MATCH ?`,
@@ -59,7 +66,7 @@ const STORES = [
     sql: `SELECT p.title AS title, p.url AS ref, 'web' AS meta,
                  ${excerptSql('pages_fts', 'markdown', 2)}, bm25(pages_fts) AS score
           FROM pages_fts JOIN pages p ON p.url = pages_fts.url
-          WHERE pages_fts MATCH ? ORDER BY score LIMIT ?`,
+          WHERE pages_fts MATCH ? ORDER BY score, p.url LIMIT ?`,
     count_sql: `SELECT COUNT(*) n FROM pages_fts WHERE pages_fts MATCH ?`,
   },
   {
@@ -68,7 +75,7 @@ const STORES = [
     web: () => env('RECALL_LENS_URL') || 'http://localhost:7900',
     sql: `SELECT path AS title, path || ':' || CAST(start AS INTEGER) AS ref, lang AS meta,
                  ${excerptSql('chunks', 'body', 1)}, bm25(chunks) AS score
-          FROM chunks WHERE chunks MATCH ? ORDER BY score LIMIT ?`,
+          FROM chunks WHERE chunks MATCH ? ORDER BY score, path, start LIMIT ?`,
     count_sql: `SELECT COUNT(*) n FROM chunks WHERE chunks MATCH ?`,
   },
 ];
