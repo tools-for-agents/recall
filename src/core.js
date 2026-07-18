@@ -270,9 +270,27 @@ export async function status() {
   const stores = STORES.map((s) => {
     const path = s.db();
     const found = existsSync(path);
-    let entries = null;
-    if (found) { const db = openRO(path); if (db) { try { entries = db.prepare(`SELECT COUNT(*) n FROM ${s.name === 'code' ? 'files' : s.name === 'reading' ? 'pages' : 'notes'}`).get().n; } catch {} db.close(); } }
-    return { store: s.name, tool: s.label, source: path, web: s.web(), available: found, entries };
+    let entries = null, broken = null;
+    if (found) {
+      const db = openRO(path);
+      if (!db) {
+        broken = 'the file exists but could not be opened read-only (locked, or not a database)';
+      } else {
+        try {
+          const table = s.name === 'code' ? 'files' : s.name === 'reading' ? 'pages' : 'notes';
+          entries = db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n;
+        } catch (e) {
+          // status() is the command you run to find out WHY recall came back empty, so it must draw the
+          // SAME line the query path draws: a store whose count THROWS (schema drift, a corrupt index, an
+          // fts5 build without the extension) is BROKEN, not empty. Swallowing it here reported a broken
+          // index as `available, entries: null` — the one lie this command exists to prevent.
+          broken = String(e.message || e).slice(0, 160);
+        }
+        db.close();
+      }
+    }
+    return { store: s.name, tool: s.label, source: path, web: s.web(),
+      available: found && !broken, entries, ...(broken ? { broken: true, error: broken } : {}) };
   });
   let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };
   try {

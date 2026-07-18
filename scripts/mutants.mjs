@@ -83,6 +83,12 @@ const CANARIES = [
     find: '  if (!VALID_SOURCES.has(source)) {',
     into: '  if (false) {',
   },
+  {
+    why: 'status() draws the SAME broken-vs-empty line as the query path — swallow the count error here and the ONE command you run to debug an empty briefing reports a corrupt index as available-with-null-entries',
+    file: 'src/core.js',
+    find: '          broken = String(e.message || e).slice(0, 160);',
+    into: '          broken = null;',
+  },
 ];
 
 // spawnSync returns status:null when IT kills the child for exceeding the timeout — a TIMEOUT,

@@ -153,6 +153,30 @@ test('status reports all four stores', async () => {
   assert.equal(s.stores.find((x) => x.store === 'brain').available, true);
 });
 
+test('status names a BROKEN store as broken — never as available-and-empty', async () => {
+  // status() is the command you run to find out WHY recall came back empty, so it must draw the same
+  // line the query path draws: a store that is present but whose count THROWS (schema drift, a corrupt
+  // index) is BROKEN, not empty. It used to `catch {}` and report it as available with entries:null —
+  // indistinguishable from a real, working, empty store.
+  const bad = join(dir, 'status-drifted.db');
+  const d = new DatabaseSync(bad);
+  d.exec('CREATE TABLE something_else (x TEXT);');    // a real db, but no `files` table → COUNT throws
+  d.close();
+
+  const saved = process.env.RECALL_LENS_DB;
+  process.env.RECALL_LENS_DB = bad;
+  try {
+    const code = (await r.status()).stores.find((x) => x.store === 'code');
+    assert.equal(code.available, false, 'a broken store is not available to search');
+    assert.equal(code.broken, true, 'it is flagged broken, not left looking empty');
+    assert.match(code.error, /no such table|files|error|sql/i, 'and it says why, so it is not a dead end');
+    assert.equal(code.entries, null, 'entries stays null — never a fake 0 that reads as searched-and-empty');
+  } finally { process.env.RECALL_LENS_DB = saved; }
+
+  // ...and a healthy store must not cry wolf: no `broken` key at all.
+  assert.equal('broken' in (await r.status()).stores.find((x) => x.store === 'brain'), false);
+});
+
 test('expand returns the full note body behind a hit, and null for an unknown ref', async () => {
   const e = await r.expand('brain', 'rag');
   assert.equal(e.source, 'brain');
