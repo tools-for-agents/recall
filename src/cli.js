@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// recall CLI — one query across your whole memory (cortex + scout + lens).
+// recall CLI — one query across your whole memory (cortex + agent-hq + scout + lens).
 //   recall "<query>" [-k 10] [--tokens 2000] [--only brain,code]
 //   recall status
 //   recall serve [--port 7980]
@@ -68,10 +68,11 @@ try {
       if (res.silent.length) out(`  ⚠ ${res.silent.join(', ')} matched but showed nothing — invisible here, not empty`);
     }
   } else {
-    out(`recall — one query across your whole memory (cortex + scout + lens)
+    out(`recall — one query across your whole memory (cortex + agent-hq + scout + lens)
 
   recall "<query>" [-k N] [--tokens N] [--only brain,team,reading,code]
   recall status                         which knowledge stores are available
+  recall serve [--port 7980]            browse the same briefing in a web view
 
   Stores (auto-discovered, all optional):
     🧠 brain    cortex notes    ($CORTEX_VAULT/.cortex/index.db  or  $RECALL_CORTEX_DB)
