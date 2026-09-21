@@ -31,41 +31,64 @@ try {
     const query = [cmd, ...positionals].join(' ');
     const res = await r.recall(query, { k: +(flags['-k'] || 10), max_tokens: +(flags['--tokens'] || 2000),
       sources: flags['--only'] ? flags['--only'].split(',') : undefined });
-    if (!res.searched?.length) { out('no knowledge stores found — set CORTEX_VAULT / SCOUT_DB / LENS_DB, or run from a dir that has them.'); process.exit(0); }
-    for (const x of res.results)
-      out(`\n${SIGIL[x.source] || '•'} [${x.source}] ${x.title}  (${x.ref})  score=${x.score}\n  ${x.excerpt}`);
-    out(`\n— ${res.count} hits across [${res.searched.join(', ')}], ~${res.tokens} tokens —`);
-    // 🔑 A STORE THAT FAILED IS NOT A STORE WITH NO RESULTS. It used to be swallowed and counted as
-    // searched-and-empty, so the briefing said "searched code · 0 matched · 1 entry" — which reads as
-    // "your code index has a file and your term is NOT in it." It has to be louder than an empty store,
-    // because a store that is empty is a fact about the world; a store that BROKE is a fact about the
-    // tool, and only one of them means the answer above is incomplete.
-    if (res.failed) {
-      for (const [name, why] of Object.entries(res.failed)) {
-        out(`  ✗ ${name} COULD NOT BE SEARCHED — ${why}\n`
-          + `    This is NOT "nothing matched there". That store contributed NOTHING to the briefing above,\n`
-          + `    so treat these results as INCOMPLETE until it is fixed.`);
+    // 🔑 "NOTHING WAS SEARCHED" IS THREE DIFFERENT SITUATIONS AND THEY HAVE THREE DIFFERENT FIXES.
+    // This was one line — `if (!res.searched?.length) { out('no knowledge stores found…'); exit(0) }`
+    // — and it answered all three with the same sentence, which is right for only one of them:
+    //
+    //   · a store was REACHED and BROKE (agent-hq answering 500, `--only team`, or any run from a
+    //     directory with no local store): recall had already computed `failed.team` naming the URL,
+    //     the status code and the fix — and this line THREW IT AWAY and printed a sentence naming
+    //     the three env vars that are NOT the problem, never mentioning agent-hq. The ✗ block below
+    //     is the entire reason the failure path exists; it must never be skipped over.
+    //   · the QUERY had nothing searchable in it ("???"): core never reaches a store at all, so
+    //     `searched` is undefined rather than empty — pointing the user at CORTEX_VAULT for that is
+    //     a confident wrong diagnosis of a perfectly healthy machine.
+    //   · genuinely no stores configured: the original sentence, and only here.
+    //
+    // (The `process.exit(0)` went with it: stdout to a pipe is async, so exiting on the line after a
+    // console.log is how a briefing loses its last lines when it is piped anywhere.)
+    if (!res.searched) {
+      out(`nothing searchable in "${query}" — no letters or digits to search for. Your stores were not asked.`);
+    } else if (!res.searched.length && !res.failed) {
+      out('no knowledge stores found — set CORTEX_VAULT / SCOUT_DB / LENS_DB, or run from a dir that has them.');
+    } else {
+      for (const x of res.results)
+        out(`\n${SIGIL[x.source] || '•'} [${x.source}] ${x.title}  (${x.ref})  score=${x.score}\n  ${x.excerpt}`);
+      out(res.searched.length
+        ? `\n— ${res.count} hits across [${res.searched.join(', ')}], ~${res.tokens} tokens —`
+        : '\n— 0 hits: NOT ONE store could be searched —');
+      // 🔑 A STORE THAT FAILED IS NOT A STORE WITH NO RESULTS. It used to be swallowed and counted as
+      // searched-and-empty, so the briefing said "searched code · 0 matched · 1 entry" — which reads as
+      // "your code index has a file and your term is NOT in it." It has to be louder than an empty store,
+      // because a store that is empty is a fact about the world; a store that BROKE is a fact about the
+      // tool, and only one of them means the answer above is incomplete.
+      if (res.failed) {
+        for (const [name, why] of Object.entries(res.failed)) {
+          out(`  ✗ ${name} COULD NOT BE SEARCHED — ${why}\n`
+            + `    This is NOT "nothing matched there". That store contributed NOTHING to the briefing above,\n`
+            + `    so treat these results as INCOMPLETE until it is fixed.`);
+        }
       }
-    }
-    // An empty store is not a finding. Say so before the agent concludes it knows nothing.
-    if (res.empty?.length) {
-      const all = res.empty.length === res.searched.length;
-      const list = res.empty.length > 1
-        ? res.empty.slice(0, -1).join(', ') + ' and ' + res.empty.at(-1)
-        : res.empty[0];
-      out(`  ⚠ ${list} ${res.empty.length === 1 ? 'is' : 'are'} EMPTY (0 entries)`
-        + (all ? ` — every store you pointed me at holds nothing. This is not "you know nothing about that";\n    it is "there is nothing here to know it from". Check CORTEX_VAULT / SCOUT_DB / LENS_DB.` : ''));
-    }
-    // Never let a ceiling hide a store without saying so. A briefing that showed
-    // 10 of 32 must not look like a briefing that found 10.
-    if (res.withheld) {
-      const per = Object.entries(res.stores).filter(([, v]) => v.withheld)
-        .map(([s, v]) => `${s} ${v.shown}/${v.matched}`).join(', ');
-      out(`  ${res.withheld} more matched and are not shown (${per})`);
-      out(res.limited_by === 'budget'
-        ? `  the token budget bound — raise it with --tokens ${res.budget * 2}`
-        : `  the result cap bound — raise it with -k ${res.k * 2}`);
-      if (res.silent.length) out(`  ⚠ ${res.silent.join(', ')} matched but showed nothing — invisible here, not empty`);
+      // An empty store is not a finding. Say so before the agent concludes it knows nothing.
+      if (res.empty?.length) {
+        const all = res.empty.length === res.searched.length;
+        const list = res.empty.length > 1
+          ? res.empty.slice(0, -1).join(', ') + ' and ' + res.empty.at(-1)
+          : res.empty[0];
+        out(`  ⚠ ${list} ${res.empty.length === 1 ? 'is' : 'are'} EMPTY (0 entries)`
+          + (all ? ` — every store you pointed me at holds nothing. This is not "you know nothing about that";\n    it is "there is nothing here to know it from". Check CORTEX_VAULT / SCOUT_DB / LENS_DB.` : ''));
+      }
+      // Never let a ceiling hide a store without saying so. A briefing that showed
+      // 10 of 32 must not look like a briefing that found 10.
+      if (res.withheld) {
+        const per = Object.entries(res.stores).filter(([, v]) => v.withheld)
+          .map(([s, v]) => `${s} ${v.shown}/${v.matched}`).join(', ');
+        out(`  ${res.withheld} more matched and are not shown (${per})`);
+        out(res.limited_by === 'budget'
+          ? `  the token budget bound — raise it with --tokens ${res.budget * 2}`
+          : `  the result cap bound — raise it with -k ${res.k * 2}`);
+        if (res.silent.length) out(`  ⚠ ${res.silent.join(', ')} matched but showed nothing — invisible here, not empty`);
+      }
     }
   } else {
     out(`recall — one query across your whole memory (cortex + agent-hq + scout + lens)

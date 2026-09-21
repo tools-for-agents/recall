@@ -319,3 +319,68 @@ test('the team store is reported available when agent-hq responds', async (t) =>
     assert.equal(team.available, true, 'a reachable agent-hq means the team store is LIVE');
   } finally { process.env.RECALL_HQ_URL = prev; }
 });
+
+// ── the drill-down told the same lie the briefing used to ──────────────────────
+//
+// `text: null` is expand's honest "this record holds nothing": the console prints "Full text isn't
+// available inline" and MCP hands a model a JSON object with a null text. The team branch produced
+// exactly that for EVERY HTTP failure — `if (res.ok) { … }` and then fall through — so at the very
+// instant `recall status` reported `broken: true, error: "HTTP 500 …"`, `expand('team', ref)` was
+// telling a model the memory was empty. One tool, two answers, one of them invented.
+//
+// expand() is "GIVE ME EXACTLY THIS RECORD". When recall could not ask the question, the answer is
+// an ERROR — the same rule the unknown-source guard above already follows.
+test('expand does not turn a broken agent-hq into a memory with nothing in it', async (t) => {
+  const { createServer } = await import('node:http');
+  let mode = 'ok';
+  let rows = [{ id: 'mem-a', title: 'A', namespace: 'ns', content: 'AAA the content of memory A', importance: 3 }];
+  const hq = createServer((req, res) => {
+    const J = { 'content-type': 'application/json' };
+    if (mode === '500') { res.writeHead(500, J); return res.end('{"error":"database is locked"}'); }
+    if (mode === '404') { res.writeHead(404, J); return res.end('{"error":"not found"}'); }
+    if (mode === 'shape') { res.writeHead(200, J); return res.end('{"memories":[]}'); }
+    res.writeHead(200, J); res.end(JSON.stringify(rows));
+  });
+  await new Promise((r) => hq.listen(0, '127.0.0.1', r));
+  t.after(() => { hq.closeAllConnections?.(); hq.close(); });
+
+  const prev = process.env.RECALL_HQ_URL;
+  const base = `http://127.0.0.1:${hq.address().port}`;
+  process.env.RECALL_HQ_URL = base;
+  await fetch(`${base}/api/memory?limit=1`).catch(() => {});   // warm the origin — see the note above
+  try {
+    const { expand } = await import(`../src/core.js?expandhq=${Date.now()}`);
+
+    // PRECONDITION: this fake really does serve the record, so a rejection below means something.
+    assert.match((await expand('team', 'mem-a')).text, /AAA/, 'precondition: a healthy platform hands the record over');
+
+    for (const [m, why] of [['500', /HTTP 500/], ['404', /HTTP 404/], ['shape', /not a list of memories/]]) {
+      mode = m;
+      await assert.rejects(() => expand('team', 'mem-a'), why,
+        `${m}: recall could not ask, so it must not answer — "text: null" here is a fact about the `
+        + 'memory that recall never had');
+      await assert.rejects(() => expand('team', 'mem-a'), /recall status/, `${m}: and it says what to run`);
+    }
+
+    // OVER-FIRE GUARD — a REACHABLE platform that genuinely does not have that id is the honest
+    // empty, and must stay null-text, not an error. This is the line the fix must not cross.
+    mode = 'ok';
+    const ghost = await expand('team', 'mem-does-not-exist');
+    assert.equal(ghost.text, null, 'a real platform without that memory is an empty answer, not a failure');
+
+    // …AND THE WINDOW IS NOT THE PLATFORM. expand asks agent-hq for a page of memories because the
+    // API has no fetch-one-by-id. When that page comes back FULL, "not in these rows" is not "not in
+    // agent-hq" — and null text would assert the second from the first, on a perfectly healthy
+    // platform, for any memory older than the page.
+    rows = Array.from({ length: 200 }, (_, i) => ({ id: `mem-${i}`, title: `T${i}`, namespace: 'ns',
+      content: `body ${i}`, importance: 3 }));
+    await assert.rejects(() => expand('team', 'mem-ancient'), /window/i,
+      'a full window cannot tell "no such memory" from "outside the window", and must not pick one');
+    // and the record that IS in the window still comes back, full window or not
+    assert.match((await expand('team', 'mem-7')).text, /body 7/, 'a hit inside the window is unaffected');
+    // one row short of the cap, the window is NOT full — so nothing was hidden, and null is honest again
+    rows = rows.slice(0, 199);
+    assert.equal((await expand('team', 'mem-ancient')).text, null,
+      'a window that came back short saw everything there was: that null is earned');
+  } finally { process.env.RECALL_HQ_URL = prev; }
+});

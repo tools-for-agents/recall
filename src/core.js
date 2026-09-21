@@ -96,22 +96,105 @@ function openRO(path) {
   try { return new DatabaseSync(path, { readOnly: true }); } catch { return null; }
 }
 
-// The team's shared memory lives in agent-hq over HTTP, not a local DB. Query it
-// if reachable; degrade silently (short timeout) when the platform isn't running.
+// The team's shared memory lives in agent-hq over HTTP, not a local DB. Query it if reachable;
+// degrade silently (short timeout) when the platform isn't running — and LOUDLY when it is running
+// and broken, because those are not the same fact about the team's memory.
 const hqUrl = () => env('RECALL_HQ_URL') || env('HQ_URL') || 'http://localhost:7700';
+const hqApi = () => `${hqUrl()}/api/memory`;
+// ONE budget, named ONCE — every HTTP path here uses it and the failure messages below QUOTE it.
+// A message carrying a number the code stopped using is exactly the small, confident lie this file
+// is about: "no reply within 800ms" is evidence, and it stops being evidence the moment it is stale.
+const HQ_TIMEOUT_MS = 800;
+
+// What agent-hq sent instead of a list, named — "a JSON object (error)" is a lead; "no results" is not.
+const shapeOf = (v) => v === null ? 'null'
+  : typeof v === 'object' ? `a JSON object (${Object.keys(v).slice(0, 3).join(', ') || 'no keys'})`
+    : `a JSON ${typeof v}`;
+// Why a request never came back, in the socket's own words. One shape, built once — this sentence is
+// written in two places (the probe and the drill-down) and the repo's rule holds: what is typed twice
+// drifts in one of them, and a drifted diagnosis is the confident wrong answer in miniature. Never
+// infer: a timeout is not proof the platform is down (a dropped SYN times out like a busy server),
+// and ECONNREFUSED is not proof it is slow. Say what happened.
+const netWhy = (e) => e?.name === 'TimeoutError' ? `no reply within the ${HQ_TIMEOUT_MS}ms budget`
+  : `a connection failure (${e?.cause?.code || e?.cause?.message || e?.name || 'fetch failed'})`;
+// A status code carries its own fix: 404 is almost always the URL, 5xx is almost always the platform.
+const hqWhy = (s) => s === 404 ? 'wrong URL, or the memory API moved — check $RECALL_HQ_URL / $HQ_URL'
+  : s === 401 || s === 403 ? 'agent-hq refused the request'
+    : s >= 500 ? 'agent-hq is up but its memory API is failing'
+      : 'agent-hq rejected the request';
+
+// 🔑 A STORE THAT FAILED IS NOT A STORE WITH NO RESULTS — and over HTTP that is the easiest line in
+// the tool to lose. This was `return res.ok ? await res.json() : []`, so EVERY non-2xx — a 500 with a
+// JSON body, a 404 from an HQ_URL pointing at the wrong port, a 401 — was laundered into `[]`, the
+// reachable-but-EMPTY sentinel. The briefing then read `searched [brain, code, team]` with
+// `team: {matched: 0}`, no `silent`, no `failed`: an affirmative claim about the team's memory that
+// recall never had the evidence to make, made at the exact moment the team store is broken and is the
+// one holding the answer. The agent then re-derives the decision the team already made — the precise
+// thing recall exists to prevent. Note how backwards it was: agent-hq NOT RUNNING (connection refused)
+// was reported honestly, and agent-hq BROKEN-BUT-LISTENING was not. The loud failure was safe and the
+// quiet one lied. The local SQLite stores have never been allowed this (see the catch in recall()).
+//
+// So: THREE outcomes, because there were always three.
+//   an Array    → it answered with a list of memories. The ONLY outcome that may count as searched.
+//   { error }   → reachable and BROKEN: a non-2xx, a reply recall could not read, or a body that is
+//                 not a list. A 200 carrying {"error":"database is locked"} is this too — a shape
+//                 recall cannot read is not an empty answer, it is an unanswered question.
+//   { noreply } → this probe got no answer at all: nothing listening, or nothing back inside the
+//                 budget. On its own that is NOT yet either of the two above — one probe cannot tell
+//                 "the platform is not there" from "the platform is there and this term was slow".
+//                 Only fetchTeam can, because only it sees whether the OTHER probes answered, so the
+//                 reason travels up with it instead of being flattened to null here.
 async function hqMemory(term, limit) {
+  let res;
   try {
-    const res = await fetch(`${hqUrl()}/api/memory?q=${encodeURIComponent(term)}&limit=${limit}`,
-      { signal: AbortSignal.timeout(800) });
-    return res.ok ? await res.json() : [];
-  } catch { return null; } // null = unreachable, [] = reachable-but-empty
+    res = await fetch(`${hqApi()}?q=${encodeURIComponent(term)}&limit=${limit}`,
+      { signal: AbortSignal.timeout(HQ_TIMEOUT_MS) });
+  } catch (e) { return { noreply: netWhy(e) }; }   // no answer at all — fetchTeam decides what it means
+  if (!res.ok) return { error: `HTTP ${res.status} from ${hqApi()} — ${hqWhy(res.status)}; run \`recall status\`` };
+  let rows;
+  try { rows = await res.json(); }
+  catch (e) {
+    const why = /abort|timeout/i.test(e?.name || '') ? 'the reply timed out mid-body' : `the reply is not JSON (${e?.name || 'error'})`;
+    return { error: `${hqApi()} answered ${res.status} but ${why} — that is not an empty team memory; run \`recall status\`` };
+  }
+  // A 200 whose body is not a list of memories is the same lie wearing a success code: agent-hq's API
+  // moved under us, or something in front of it (a proxy, a login page) answered on its behalf.
+  if (!Array.isArray(rows)) {
+    return { error: `${hqApi()} answered ${res.status} with ${shapeOf(rows)}, not a list of memories — check agent-hq's API; run \`recall status\`` };
+  }
+  return rows;
 }
 // agent-hq's memory search is a single LIKE, so probe per term (in parallel) and
 // merge — matching the OR-over-terms recall the other stores give.
 async function fetchTeam(query, limit) {
   const terms = [...new Set((String(query).match(/[\p{L}\p{N}_]{2,}/gu) || []).map((t) => t.toLowerCase()))].slice(0, 6);
   const probes = await Promise.all((terms.length ? terms : [String(query)]).map((t) => hqMemory(t, limit)));
-  if (probes.every((p) => p === null)) return null; // platform not running
+  // One broken probe costs more than the hits it lost: the merge below is what `matched` is counted
+  // from, so a partial merge is an UNDERSTATED fact about the team's memory, stated with full
+  // confidence. A SQLite store whose query throws fails whole; the HTTP store fails whole too.
+  const broken = probes.find((p) => p?.error);
+  if (broken) return broken;
+  // …AND A PROBE THAT NEVER ANSWERED COSTS EXACTLY THE SAME, MORE QUIETLY. This is the half of the
+  // fault that the 500 fix above did NOT close: a timed-out probe used to come back null and get
+  // dropped from the merge, so ONE slow term — a big LIKE scan, a lock, a GC pause — took its
+  // memories out of the briefing while `matched` went on being counted from what was left. The
+  // result was `searched [team]`, `matched: 1`, `silent: []`, `withheld: 0`, no `failed`: the team's
+  // highest-importance decision about the missing term simply gone, and EVERY field an agent checks
+  // to detect an incomplete answer clean. Same lie as the 500, one layer in — which is why AGENTS.md
+  // names "slow" in the same breath as "a 500 with a JSON body".
+  //
+  // Nothing answering at all is a different fact: recall never reached the platform, so it claims
+  // nothing about the team's memory and the store is simply ABSENT, like a DB file that is not on
+  // disk. It is the MIXTURE that must be loud — part of the question was answered, which makes the
+  // reply INCOMPLETE rather than empty, and incomplete-looking-complete is the failure this tool
+  // exists to prevent.
+  const mute = probes.filter((p) => p?.noreply);
+  if (mute.length === probes.length) return null; // never reached the platform → absent, not broken
+  if (mute.length) {
+    const why = [...new Set(mute.map((p) => p.noreply))].join(' / ');
+    return { error: `${mute.length} of ${probes.length} term probes to ${hqApi()} got ${why}, `
+      + `while others answered — the team's answer is INCOMPLETE, not empty; run \`recall status\`` };
+  }
   const seen = new Map();
   for (const rows of probes) if (Array.isArray(rows)) for (const m of rows) if (!seen.has(m.id)) seen.set(m.id, m);
   return [...seen.values()].map((m) => ({ source: 'team', title: m.title, ref: m.id, meta: m.namespace || 'default',
@@ -204,8 +287,15 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
   if (!wanted || wanted.has('team')) {
     const team = await fetchTeam(query, Math.max(k * 2, 20));
     // agent-hq answers over HTTP with a LIKE search, so what it returned is all we
-    // can honestly claim to know it has.
-    if (team) { searched.push('team'); bySource.team = team; matchedBy.team = team.length; }
+    // can honestly claim to know it has — and ONLY a list is an answer.
+    if (Array.isArray(team)) { searched.push('team'); bySource.team = team; matchedBy.team = team.length; }
+    // Reachable-but-BROKEN goes where a throwing SQLite store goes: `failed`, by name, never into
+    // `searched` with a `matched: 0` the caller reads as "the team has no record of this". (Not
+    // running stays silently absent — a platform that isn't there is a missing store, not a broken
+    // one.) The fix is at the END of these sentences ("run `recall status`", "check $HQ_URL") and the
+    // URL in the middle of them is whatever the user configured, so the cap has to clear a real
+    // hostname — truncate that tail away and the message keeps the alarm and loses the remedy.
+    else if (team) failed.team = String(team.error).slice(0, 240);
   }
 
   // Interleave round-robin across stores (scores aren't comparable across sources)
@@ -292,11 +382,20 @@ export async function status() {
     return { store: s.name, tool: s.label, source: path, web: s.web(),
       available: found && !broken, entries, ...(broken ? { broken: true, error: broken } : {}) };
   });
-  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };
+  const team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };
   try {
-    const res = await fetch(`${hqUrl()}/api/memory?limit=1`, { signal: AbortSignal.timeout(800) });
-    if (res.ok) { const rows = await res.json(); team.available = Array.isArray(rows); }
-  } catch { /* platform not running → unavailable */ }
+    const res = await fetch(`${hqApi()}?limit=1`, { signal: AbortSignal.timeout(HQ_TIMEOUT_MS) });
+    // status() is what the query path's failure message TELLS YOU TO RUN, so it has to carry you to
+    // the fix: a bare `available: false` reads as "agent-hq isn't running", and for a 404 (wrong port)
+    // or a 500 (platform up, memory API broken) that sends you to restart something that is already
+    // up. Same shape as the local stores: broken is a THIRD state, and it says why.
+    if (!res.ok) { team.broken = true; team.error = `HTTP ${res.status} from ${hqApi()} — ${hqWhy(res.status)}`; }
+    else {
+      const rows = await res.json().catch((e) => e);
+      if (Array.isArray(rows)) team.available = true;
+      else { team.broken = true; team.error = `${hqApi()} answered ${res.status} with ${rows instanceof Error ? `a reply recall could not read (${rows.name})` : shapeOf(rows)}, not a list of memories`; }
+    }
+  } catch { /* platform not running → unavailable, and that is all we know */ }
   stores.push(team);
   return { stores };
 }
@@ -305,6 +404,9 @@ export async function status() {
 // behind a result, read straight from the store (capped), so you can preview it
 // inline without leaving recall. Returns { source, ref, text, truncated, meta }.
 const EXPAND_CAP = 1600;
+// How many memories agent-hq is asked for when drilling into a team hit. It has no
+// get-one-by-id route, so this is a WINDOW, and the code below has to know it is one.
+const TEAM_WINDOW = 200;
 export async function expand(source, ref) {
   ref = String(ref || '');
   // A source names a FINITE, KNOWN set (the same one recall's --only draws from). A typo ('reeding') is a
@@ -318,11 +420,34 @@ export async function expand(source, ref) {
   }
   const cap = (t) => { t = String(t || '').replace(/\r/g, ''); return { text: t.slice(0, EXPAND_CAP), truncated: t.length > EXPAND_CAP }; };
   if (source === 'team') {
-    try {
-      const res = await fetch(`${hqUrl()}/api/memory?limit=200`, { signal: AbortSignal.timeout(800) });
-      if (res.ok) { const rows = await res.json(); const m = Array.isArray(rows) && rows.find((x) => x.id === ref);
-        if (m) return { source, ref, ...cap(m.content), meta: m.namespace || null }; }
-    } catch { /* platform down → null */ }
+    // 🔑 THE SAME LAUNDERING AS hqMemory's, ONE FUNCTION OVER. This used to swallow every HTTP
+    // failure and fall through to `text: null` — and `text: null` is expand's honest "that record
+    // holds nothing", which the console renders as "Full text isn't available inline" and MCP hands
+    // a model as a fact about the memory. So a 500'ing agent-hq made recall contradict itself in one
+    // breath: `recall status` said `broken: true` while the drill-down said the memory was empty.
+    // expand() is "GIVE ME EXACTLY THIS RECORD"; when recall could not ask, the answer is an ERROR,
+    // never a record with nothing in it. (An unknown source already throws, just above.)
+    let res;
+    try { res = await fetch(`${hqApi()}?limit=${TEAM_WINDOW}`, { signal: AbortSignal.timeout(HQ_TIMEOUT_MS) }); }
+    catch (e) { throw new Error(`cannot read that memory: ${hqApi()} gave ${netWhy(e)} — that is not an empty memory; run \`recall status\``); }
+    if (!res.ok) throw new Error(`cannot read that memory: HTTP ${res.status} from ${hqApi()} — ${hqWhy(res.status)}; run \`recall status\``);
+    let rows;
+    try { rows = await res.json(); }
+    catch (e) { throw new Error(`cannot read that memory: ${hqApi()} answered ${res.status} but recall could not read the reply (${e?.name || 'error'}); run \`recall status\``); }
+    if (!Array.isArray(rows)) throw new Error(`cannot read that memory: ${hqApi()} answered ${res.status} with ${shapeOf(rows)}, not a list of memories; run \`recall status\``);
+    const m = rows.find((x) => x.id === ref);
+    if (m) return { source, ref, ...cap(m.content), meta: m.namespace || null };
+    // agent-hq's memory API has no fetch-one-by-id, so this window is all recall can see. When it
+    // came back FULL, "not in these rows" is not "not in agent-hq" — and null text would assert the
+    // second from the first. Say which one recall actually knows.
+    if (rows.length >= TEAM_WINDOW) {
+      // Count what came back, not what was asked for: a platform that ignores `limit` would make
+      // "the 200 memories" a made-up number in the one sentence whose job is to be careful.
+      throw new Error(`cannot read that memory: "${ref}" is not among the ${rows.length} memories `
+        + `${hqApi()} returned for a limit of ${TEAM_WINDOW}, and that window came back FULL — recall `
+        + 'cannot fetch one memory by id, so it cannot tell "no such memory" from "outside that '
+        + 'window". Open it in agent-hq.');
+    }
     return { source, ref, text: null, truncated: false };
   }
   const store = STORES.find((s) => s.name === source);

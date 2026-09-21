@@ -93,7 +93,7 @@ A zero-dependency **unified-briefing console**: one query, one interleaved brief
 - Runs the query as an FTS5 `MATCH` against each store's index and normalises every hit to `{ source, title, ref, meta, excerpt, score }`.
 - bm25 scores aren't comparable across separate databases, so results are **interleaved round-robin** across sources (best-of-each, then next-best-of-each…) and filled to a token budget — a balanced briefing rather than one store drowning out the rest.
 - SQLite stores are opened **read-only**; recall never writes. Delete or rebuild any underlying index freely.
-- The `team` store is queried over agent-hq's HTTP memory API (per-term, in parallel, with a short timeout) and degrades silently when the platform isn't running.
+- The `team` store is queried over agent-hq's HTTP memory API (per-term, in parallel, with a short timeout). It degrades **silently** when nothing answers at all — and **loudly** when the platform is running and answers badly: a 500, a 404 from an `HQ_URL` on the wrong port, a body that isn't a list of memories, or a term probe that never comes back while the others do, all land in `failed`, never in `searched` with `matched: 0`. *“The team has no record of this”* is a claim recall makes only when agent-hq answered **every** term it was asked.
 - It depends only on the sibling tools' **stable interfaces** — their table schemas (`notes_fts`, `pages_fts`, `chunks`) and agent-hq's `/api/memory` — not their code, so each tool stays independent.
 
 ## The agent toolkit

@@ -68,8 +68,11 @@ const CANARIES = [
   {
     why: 'the team store defaults to OFFLINE — recall must not claim a store is live when agent-hq is down',
     file: 'src/core.js',
-    find: "  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };",
-    into: "  let team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: true, entries: null };",
+    // Re-pointed, not rewritten: the declaration became `const` (nothing reassigns it any more) and
+    // the anchor still said `let`, so this canary matched 0× and stopped watching the one line that
+    // decides whether an unreachable agent-hq is reported as live. Same line, same mutation.
+    find: "  const team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: false, entries: null };",
+    into: "  const team = { store: 'team', tool: 'agent-hq', source: hqUrl(), web: hqUrl(), available: true, entries: null };",
   },
   {
     why: 'a store that FAILED is not a store with NO RESULTS — swallowed, a broken index came back as "searched, 0 matched, 1 entry", which reads as "your term is not there"',
@@ -88,6 +91,30 @@ const CANARIES = [
     file: 'src/core.js',
     find: '          broken = String(e.message || e).slice(0, 160);',
     into: '          broken = null;',
+  },
+  {
+    why: 'the HTTP store reports its failure BY NAME — drop it and a 500ing agent-hq is a store recall never mentions, which is how "the team has no record of this" gets said about a broken store',
+    file: 'src/core.js',
+    find: '    else if (team) failed.team = String(team.error).slice(0, 240);',
+    into: '    else if (team) void team;',
+  },
+  {
+    why: 'a probe that never answered must not be dropped from the merge — one slow term used to leave `searched [team], matched: 1`, an UNDERSTATED claim about the team\'s memory with every incompleteness field clean',
+    file: 'src/core.js',
+    find: '  const mute = probes.filter((p) => p?.noreply);',
+    into: '  const mute = [];',
+  },
+  {
+    why: 'the CLI must never exit before printing the failure report: with team the only store, `!res.searched.length` alone threw `failed` away and printed "no knowledge stores found — set CORTEX_VAULT…" about a machine where agent-hq answered 500',
+    file: 'src/cli.js',
+    find: '    } else if (!res.searched.length && !res.failed) {',
+    into: '    } else if (!res.searched.length) {',
+  },
+  {
+    why: 'expand() must not launder an HTTP failure into `text: null` — that reads as "this memory is empty", the same lie the briefing used to tell, in the one call that means GIVE ME EXACTLY THIS RECORD',
+    file: 'src/core.js',
+    find: '    if (!res.ok) throw new Error(`cannot read that memory: HTTP ${res.status}',
+    into: '    if (false) throw new Error(`cannot read that memory: HTTP ${res.status}',
   },
 ];
 

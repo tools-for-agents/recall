@@ -385,3 +385,237 @@ test('a store that FAILED is not a store with NO RESULTS — it must never be sw
   const ok = await r.recall('retrieval');
   assert.equal('failed' in ok, false, 'a healthy briefing carries no failure report');
 });
+
+// ── the HTTP twin of the test above, and the one the federation never had ───────
+//
+// The team store is the only one recall reaches over HTTP, and it is the one store whose silence
+// causes a WRONG decision rather than a redundant one: it holds "we decided X". `hqMemory` used to
+// end `return res.ok ? await res.json() : []` — and `[]` is the reachable-but-EMPTY sentinel, the
+// line right below it says so. So a 500 with a JSON body, a 404 from an HQ_URL on the wrong port, a
+// 401, all came back as "asked, nothing there": the briefing said `searched [brain, code, team]`
+// with `team: {shown:0, matched:0}`, `silent: []`, and no `failed` key. Every field an agent would
+// check to spot an incomplete answer was clean. `matched: 0` is not a missing value — it is an
+// affirmative claim about the team's memory, made from a 500.
+//
+// The give-away that it was backwards: agent-hq NOT RUNNING was reported honestly (team absent from
+// `searched`), and agent-hq UP-BUT-BROKEN was not. The loud failure was safe; the quiet one lied.
+// AGENTS.md asks for exactly this test — "a 500 that is not checked for `r.ok` comes back looking
+// exactly like data" — and every fake agent-hq in this suite answered 200.
+test('an agent-hq that answers BADLY is a FAILED store, not an empty one', async (t) => {
+  const { createServer } = await import('node:http');
+
+  // One fake platform, flipped per case — so every branch is the same server, the same query and
+  // the same instant, and only agent-hq's health differs.
+  let mode = 'ok';
+  const MEMS = [{ id: 'mem-budget', title: 'Chunk size for the code index', namespace: 'decisions',
+    content: 'The team decided retrieval chunks are capped at 60 lines.', importance: 5 }];
+  const hq = createServer((req, res) => {
+    const J = { 'content-type': 'application/json' };
+    if (mode === '500') { res.writeHead(500, J); return res.end('{"error":"database is locked"}'); }
+    if (mode === '404') { res.writeHead(404, J); return res.end('{"error":"not found"}'); }
+    if (mode === '401') { res.writeHead(401, J); return res.end('{"error":"unauthorized"}'); }
+    if (mode === 'shape') { res.writeHead(200, J); return res.end('{"memories":[],"total":0}'); }
+    if (mode === 'garbage') { res.writeHead(200, J); return res.end('<html><body>please log in</body></html>'); }
+    // SLOW, the third failure AGENTS.md names: headers land, the body never does.
+    if (mode === 'stall') { res.writeHead(200, J); return res.write('[{"id":"mem-bud'); }
+    if (mode === 'empty') { res.writeHead(200, J); return res.end('[]'); }
+    res.writeHead(200, J); res.end(JSON.stringify(MEMS));
+  });
+  await new Promise((r) => hq.listen(0, '127.0.0.1', r));
+  t.after(() => { hq.closeAllConnections?.(); hq.close(); });   // the stalled reply still holds a socket
+
+  const base = `http://127.0.0.1:${hq.address().port}`;
+  const prev = process.env.RECALL_HQ_URL;
+  process.env.RECALL_HQ_URL = base;
+  // Warm the origin first. The 800ms probe budget is right for a live server, but the first fetches
+  // to a just-created localhost server pay a cold start measured at ~803ms on a loaded box (see
+  // serve.test.js) — and a timed-out probe is the UNREACHABLE branch, a different sentinel, so a
+  // cold start would quietly test the wrong thing. Same reason `ask` retries: the mock is up the
+  // whole time, so a probe that lands warm proves the point, and if none of five do, that is real.
+  await fetch(`${base}/api/memory?limit=1`).catch(() => {});
+  const ask = async (q) => {
+    let res;
+    for (let i = 0; i < 5; i++) {
+      res = await r.recall(q);
+      if (res.searched.includes('team') || res.failed?.team) break;   // the platform answered at all
+    }
+    return res;
+  };
+
+  try {
+    // PRECONDITION FIRST: a fake that never answers would "fail" in every mode and the assertions
+    // below would pass for the wrong reason. Prove this agent-hq really does reach the briefing.
+    mode = 'ok';
+    const live = await ask('retrieval chunks');
+    assert.ok(live.searched.includes('team'), 'precondition: a healthy agent-hq IS searched');
+    assert.ok(live.results.some((x) => x.source === 'team' && x.ref === 'mem-budget'),
+      'precondition: and the team memory reaches the briefing — this store really does hold the answer');
+    assert.equal('failed' in live, false, 'a healthy team store must not cry wolf');
+
+    // Every way a listening agent-hq can answer without answering. The wording differs because the
+    // FIX differs — a 404 is your HQ_URL, a 500 is the platform, a non-list is its API — but the
+    // verdict never does: not searched, not counted, named in `failed`.
+    for (const [m, why] of [['500', /HTTP 500/], ['404', /HTTP 404/], ['401', /HTTP 401/],
+      ['shape', /not a list of memories/i], ['garbage', /not JSON/i], ['stall', /timed out/i]]) {
+      mode = m;
+      const res = await ask('retrieval chunks');
+      assert.ok(!res.searched.includes('team'),
+        `${m}: a store that could not answer must NOT be claimed as searched — got ${JSON.stringify(res.searched)}`);
+      assert.equal(res.stores.team, undefined,
+        `${m}: and must carry no matched count — "matched: 0" is an affirmative claim about the team's memory`);
+      assert.ok(res.failed?.team, `${m}: it is reported as FAILED, the way a broken SQLite store is`);
+      assert.match(res.failed.team, why, `${m}: naming what went wrong`);
+      assert.match(res.failed.team, /api\/memory/, `${m}: and where it looked`);
+      assert.match(res.failed.team, /recall status|HQ_URL/, `${m}: and what to run to fix it`);
+      assert.ok(res.searched.includes('brain'), `${m}: the healthy stores still answer`);
+      assert.ok(res.results.length > 0, `${m}: one broken store is not a total loss`);
+    }
+
+    // THE NEIGHBOUR THAT MUST NOT TRIP. An agent-hq that is up and genuinely holds nothing is still
+    // searched-and-empty: "the team has no record of this" is a real answer and the most useful one
+    // recall gives at the start of a task. Turning it into a failure would be the same lie mirrored.
+    mode = 'empty';
+    const none = await ask('retrieval chunks');
+    assert.ok(none.searched.includes('team'), 'a reachable, empty agent-hq IS searched');
+    assert.equal(none.stores.team.matched, 0, 'and honestly reports that nothing matched');
+    assert.equal('failed' in none, false, 'an empty team store is not a failure');
+
+    // …and the command the failure message tells you to run must agree with it. `available: false`
+    // alone reads as "agent-hq isn't running", which for a 500 sends you to restart something that
+    // is already up.
+    mode = '500';
+    let st;
+    for (let i = 0; i < 5; i++) { st = (await r.status()).stores.find((x) => x.store === 'team'); if (st.broken) break; }
+    assert.equal(st.available, false, 'a broken platform is not available to search');
+    assert.equal(st.broken, true, 'status names it BROKEN, not merely offline');
+    assert.match(st.error, /HTTP 500/, 'and says what agent-hq actually answered');
+
+    // over-fire guard: a healthy agent-hq carries no `broken` key at all
+    mode = 'ok';
+    let live2;
+    for (let i = 0; i < 5; i++) { live2 = (await r.status()).stores.find((x) => x.store === 'team'); if (live2.available) break; }
+    assert.equal(live2.available, true, 'a healthy agent-hq is available');
+    assert.equal('broken' in live2, false, 'and is not flagged broken');
+  } finally { process.env.RECALL_HQ_URL = prev; }
+});
+
+// ── the OTHER half of the same fault: the probe that never came back ────────────
+//
+// The test above closes the 500. This one closes the case AGENTS.md names right beside it — "down,
+// SLOW, or a 500 with a JSON body" — and it is the quieter of the two, because nothing about it
+// looks like a failure at any layer.
+//
+// agent-hq's memory search is one LIKE per term, so recall probes PER TERM in parallel and merges.
+// A probe that timed out came back `null` and was simply skipped by the merge: `for (const rows of
+// probes) if (Array.isArray(rows))`. The store was still reported `searched`, and `matched` was
+// still counted — from the terms that DID answer. One slow term (a big LIKE scan, a row lock, a GC
+// pause) therefore removed its memories from the briefing and left behind
+//     searched: ['team'], stores.team: { shown: 1, matched: 1, withheld: 0 }, silent: [], no failed
+// which is an affirmative, UNDERSTATED claim about the team's memory: every field an agent would
+// check to spot an incomplete answer is clean, and the decision it needed is the one that is gone.
+//
+// Nothing answering at all is a different fact and must stay quiet — recall never reached the
+// platform, so it claims nothing. It is the MIXTURE that has to be loud.
+test('a term probe that never answers makes the team store INCOMPLETE, not smaller', async (t) => {
+  const { createServer } = await import('node:http');
+
+  // A healthy agent-hq that is slow — or dies — for exactly ONE term. The other term answers
+  // normally, which is the whole point: the platform is up and recall got a partial answer.
+  const MEMS = {
+    budget: { id: 'm-budget', title: 'Token budget is mandatory', namespace: 'decisions',
+      content: 'The team decided every retrieval call must carry a token budget.', importance: 5 },
+    chunk: { id: 'm-chunk', title: 'Chunk size for the code index', namespace: 'decisions',
+      content: 'Retrieval chunks are capped at 60 lines.', importance: 4 },
+  };
+  let slow = [];          // terms the platform stalls on (longer than the probe budget)
+  let reset = [];         // terms whose connection it drops on the floor
+  const hq = createServer(async (req, res) => {
+    const term = (new URL(req.url, 'http://x').searchParams.get('q') || '').toLowerCase();
+    if (reset.includes(term)) return req.destroy();
+    if (slow.includes(term)) await new Promise((r) => setTimeout(r, 2500));
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(MEMS[term] ? [MEMS[term]] : []));
+  });
+  await new Promise((r) => hq.listen(0, '127.0.0.1', r));
+  t.after(() => { hq.closeAllConnections?.(); hq.close(); });   // stalled replies still hold sockets
+
+  const prev = process.env.RECALL_HQ_URL, prevBrain = process.env.RECALL_CORTEX_DB;
+  process.env.RECALL_HQ_URL = `http://127.0.0.1:${hq.address().port}`;
+  process.env.RECALL_CORTEX_DB = join(dir, 'absent-brain.db');   // team only: nothing else to hide behind
+  await fetch(`${process.env.RECALL_HQ_URL}/api/memory?q=chunk&limit=1`).catch(() => {});  // warm the origin
+
+  // A cold origin can blow the 800ms budget on EVERY probe, which is the all-mute case — a different
+  // sentinel, and retrying is how we avoid testing it by accident. The bug's own signature is the
+  // opposite (team PRESENT in `searched`), so this retry cannot hide it.
+  const ask = async (q) => {
+    let res;
+    for (let i = 0; i < 5; i++) {
+      res = await r.recall(q);
+      if (res.searched.includes('team') || res.failed?.team) break;
+      }
+    return res;
+  };
+
+  try {
+    // PRECONDITION: this platform really does answer both terms, and both memories really do reach
+    // the briefing. Without this the assertions below would pass against a server that answers nothing.
+    slow = []; reset = [];
+    const live = await ask('budget chunk');
+    assert.ok(live.searched.includes('team'), 'precondition: a healthy agent-hq is searched');
+    assert.equal(live.stores.team.matched, 2, 'precondition: and both terms contribute — got '
+      + JSON.stringify(live.stores.team));
+    assert.equal('failed' in live, false, 'precondition: nothing is broken here');
+
+    // ONE SLOW TERM. m-budget — the team's highest-importance decision — is what goes missing.
+    slow = ['budget'];
+    const part = await ask('budget chunk');
+    assert.ok(!part.searched.includes('team'),
+      `a store that answered half the question was not searched — got ${JSON.stringify(part.searched)} `
+      + `with ${JSON.stringify(part.stores.team)}`);
+    assert.equal(part.stores.team, undefined,
+      'and carries no matched count: "matched: 1" here is an understated claim about the team\'s memory, '
+      + 'stated with the same confidence as a complete one');
+    assert.ok(part.failed?.team, 'it is reported as FAILED, the way a 500 and a broken SQLite store are');
+    assert.match(part.failed.team, /1 of 2 term probes/, 'saying how much of the question went unanswered');
+    assert.match(part.failed.team, /no reply within the \d+ms budget/, 'and what happened to it');
+    assert.match(part.failed.team, /INCOMPLETE/, 'and that this is incompleteness, not emptiness');
+    assert.match(part.failed.team, /api\/memory/, 'and where it looked');
+    assert.match(part.failed.team, /recall status/, 'and what to run next — the fix must survive the cap');
+    assert.doesNotMatch(part.failed.team, /connection failure/,
+      'a timeout is not a refused connection — a diagnosis that names the wrong cause sends you to fix '
+      + 'the wrong thing');
+    assert.ok(!part.results.some((x) => x.source === 'team'),
+      'and the half-answer is not quietly used as if it were the whole one');
+
+    // A DIFFERENT INPUT, THE SAME FAULT: the probe does not time out, it is CUT OFF. Same shape
+    // (one term answered, one did not), and the message must report what really happened.
+    slow = []; reset = ['budget'];
+    const cut = await ask('budget chunk');
+    assert.ok(!cut.searched.includes('team'), 'a dropped connection is not an empty term either');
+    assert.ok(cut.failed?.team, 'still a FAILED store');
+    assert.match(cut.failed.team, /1 of 2 term probes/, 'still naming how much was lost');
+    assert.match(cut.failed.team, /connection failure/, 'and this time it really was the connection');
+    assert.doesNotMatch(cut.failed.team, /no reply within/, 'and it must not claim a timeout it did not see');
+
+    // OVER-FIRE GUARD 1 — the platform answering NOTHING is the absent case, and it must stay quiet.
+    // recall never reached it, so it claims nothing about the team; crying "INCOMPLETE" here would be
+    // the mirror-image lie (a failure report about a store that was never there).
+    slow = ['budget', 'chunk']; reset = [];
+    const none = await r.recall('budget chunk');
+    assert.ok(!none.searched.includes('team'), 'an unreachable platform is not searched');
+    assert.equal('failed' in none, false,
+      `nothing answered, so nothing BROKE — got ${JSON.stringify(none.failed)}`);
+
+    // OVER-FIRE GUARD 2 — and a healthy platform still answers in full. A guard that turns the
+    // correct answer into an error costs more than the bug it closed.
+    slow = []; reset = [];
+    const well = await ask('budget chunk');
+    assert.ok(well.searched.includes('team'), 'a healthy agent-hq is searched');
+    assert.equal(well.stores.team.matched, 2, 'with every term counted');
+    assert.equal('failed' in well, false, 'and no failure report');
+    assert.ok(well.results.some((x) => x.ref === 'm-budget'), 'and the important memory is in the briefing');
+  } finally {
+    process.env.RECALL_HQ_URL = prev;
+    process.env.RECALL_CORTEX_DB = prevBrain;
+  }
+});
