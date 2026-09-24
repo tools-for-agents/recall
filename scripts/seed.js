@@ -45,8 +45,12 @@ brain.close();
 
 /* ── reading: a scout cache (pages + pages_fts) ────────────────────────────── */
 const reading = new DatabaseSync(join(dir, 'reading.db'));
-reading.exec(`CREATE TABLE pages (url TEXT PRIMARY KEY, title TEXT, markdown TEXT);
-  CREATE VIRTUAL TABLE pages_fts USING fts5(url UNINDEXED, title, body, tokenize='porter unicode61');`);
+// The SAME schema scout creates (scout/src/db.js). This used to name the FTS column `body` — scout's
+// is `markdown` — so every store built from this seed failed recall's query ("no such column"), and the
+// UI gates that serve it were grading a briefing with the reading store silently broken.
+reading.exec(`CREATE TABLE pages (url TEXT PRIMARY KEY, final_url TEXT, title TEXT, description TEXT, markdown TEXT,
+    content_type TEXT, status INTEGER, html_bytes INTEGER, md_bytes INTEGER, fetched_at TEXT);
+  CREATE VIRTUAL TABLE pages_fts USING fts5(url UNINDEXED, title, markdown, tokenize='porter unicode61');`);
 const PAGES = [
   ['https://llmstxt.org/', 'The /llms.txt file',
    'A proposal for a markdown file at the root of a site that gives a language model a curated map of it, instead of asking it to read the navigation chrome of every page.'],
@@ -56,21 +60,25 @@ const PAGES = [
    'Body text needs 4.5:1 against its background and large text needs 3:1. Measured against the effective backdrop, not the colour someone declared and never painted.'],
 ];
 for (const [url, title, body] of PAGES) {
-  reading.prepare('INSERT INTO pages VALUES (?,?,?)').run(url, title, body);
-  reading.prepare('INSERT INTO pages_fts (url,title,body) VALUES (?,?,?)').run(url, title, body);
+  reading.prepare('INSERT INTO pages (url, title, markdown) VALUES (?,?,?)').run(url, title, body);
+  reading.prepare('INSERT INTO pages_fts (url,title,markdown) VALUES (?,?,?)').run(url, title, body);
 }
 reading.close();
 
 /* ── code: a lens index (chunks) ───────────────────────────────────────────── */
 const code = new DatabaseSync(join(dir, 'code.db'));
-code.exec(`CREATE VIRTUAL TABLE chunks USING fts5(path UNINDEXED, body, lang UNINDEXED, start UNINDEXED, tokenize='porter unicode61');`);
+// The SAME schema lens creates (lens/src/db.js): a `files` table beside the chunks, and an `end` column.
+// Without `files` recall could not count the haystack and reported the store BROKEN.
+code.exec(`CREATE TABLE files (path TEXT PRIMARY KEY, lang TEXT, lines INTEGER, bytes INTEGER, mtime INTEGER, indexed_at TEXT);
+  CREATE VIRTUAL TABLE chunks USING fts5(path, body, lang UNINDEXED, start UNINDEXED, "end" UNINDEXED, tokenize='porter unicode61');`);
 const CHUNKS = [
   ['src/core.js', 'js', 12, 'export async function recall(query, opts) { const stores = available(); return interleave(stores, query, opts.max_tokens); }'],
   ['src/audit.js', 'js', 205, 'function backdrop(el) { for (let n = el; n; n = n.parentElement) { const c = bgOf(n); if (c && c.a >= 0.999) return c; } }'],
   ['src/budget.js', 'js', 40, 'function fill(results, budget) { let used = 0; const out = []; for (const r of results) { if (used + cost(r) > budget) break; out.push(r); used += cost(r); } return out; }'],
 ];
 for (const [path, lang, start, body] of CHUNKS) {
-  code.prepare('INSERT INTO chunks (path,body,lang,start) VALUES (?,?,?,?)').run(path, body, lang, start);
+  code.prepare('INSERT OR IGNORE INTO files (path, lang, lines) VALUES (?,?,?)').run(path, lang, start + 20);
+  code.prepare('INSERT INTO chunks (path,body,lang,start,"end") VALUES (?,?,?,?,?)').run(path, body, lang, start, start + 3);
 }
 code.close();
 
