@@ -1,7 +1,7 @@
 {
   "name": "@tools-for-agents/recall",
   "version": "0.1.0",
-  "description": "Federated recall across an agent's brain, team, reading and code, in one budgeted query.",
+  "description": "Federated recall across an agent's brain, self, team, reading and code, in one budgeted query.",
   "type": "module",
   "bin": {
     "recall": "src/cli.js"

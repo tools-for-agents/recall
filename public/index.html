@@ -306,7 +306,7 @@
   @media (max-width:780px) and (min-width:721px) { body { grid-template-columns:0 1fr; } .rail { display:none; } .qwrap { max-width:none; } }
   @media (max-width:780px) { .qwrap { max-width:none; } }
 
-/* cross-tool footer — this is one of tools-for-agents' six web views */
+/* cross-tool footer — shared by every tools-for-agents web view */
 .xtk{position:fixed;left:50%;bottom:0;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap: 12px;max-width:96vw;overflow-x:auto;padding: 4px 16px;border:1px solid rgba(255,255,255,.1);border-bottom:none;border-radius:12px 12px 0 0;background:rgba(12,13,17,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1;white-space:nowrap;color:#d6dbe4;scrollbar-width:none;}
 .xtk::-webkit-scrollbar{display:none;}
 
@@ -999,7 +999,7 @@ const markExcerpt = (s) => esc(s).replaceAll('⟦', '<mark>').replaceAll('⟧', 
 
 // ── Keep the whole briefing ─────────────────────────────────────────────────
 // A briefing was a dead end: you could act on one hit, or copy the lot to your
-// clipboard, but the answer itself — four stores, reconciled, for one question —
+// clipboard, but the answer itself — every store, reconciled, for one question —
 // evaporated when you typed the next query. Keeping it writes ONE note, titled
 // with the question. Ask it again next week and the answer appends: the note
 // becomes the running record of what the company knows about that question.

@@ -4,7 +4,7 @@
 
 **One query across an agent's whole memory.**
 
-An agent's knowledge ends up scattered: some in its second brain ([`cortex`](../cortex)), some in the team's shared memory ([`agent-hq`](../agent-hq)), some in what it's read ([`scout`](../scout)), some in its code ([`lens`](../lens)). Searching each by hand is friction — so agents skip it and re-derive what they already knew. `recall` fixes that: **one query, every store, one ranked briefing** — token-budgeted, each hit tagged by source. Run it at the **start of a task** to load exactly the relevant context.
+An agent's knowledge ends up scattered: some in its second brain ([`cortex`](../cortex)), some in what it lived (its [`ghost`](../ghost) mind, if it has one), some in the team's shared memory ([`agent-hq`](../agent-hq)), some in what it's read ([`scout`](../scout)), some in its code ([`lens`](../lens)). Searching each by hand is friction — so agents skip it and re-derive what they already knew. `recall` fixes that: **one query, every store, one ranked briefing** — token-budgeted, each hit tagged by source. Run it at the **start of a task** to load exactly the relevant context.
 
 Part of [`tools-for-agents`](https://github.com/tools-for-agents). **Zero dependencies** — `node:sqlite` over the sibling tools' existing FTS5 indexes, **read-only**. It doesn't own any data; it federates theirs. Any store that isn't present is simply skipped.
 
@@ -23,6 +23,7 @@ Part of [`tools-for-agents`](https://github.com/tools-for-agents). **Zero depend
 | Source | Tool | What it searches | Found at |
 |---|---|---|---|
 | 🧠 `brain` | [cortex](../cortex) | your notes / second brain | `$CORTEX_VAULT/.cortex/index.db` or `$RECALL_CORTEX_DB` |
+| 👻 `self` | [ghost](../ghost) | what the agent lived: episodes, its person's words, will, craft, intentions | `$GHOST_HOME` (default `~/.ghost`) or `$RECALL_GHOST_HOME` — absent if there is no mind |
 | 🛰️ `team` | [agent-hq](../agent-hq) | the team's shared memory (over HTTP) | `$HQ_URL` or `$RECALL_HQ_URL` (default `http://localhost:7700`) |
 | 🧭 `reading` | [scout](../scout) | pages you've read | `$SCOUT_DB` or `$RECALL_SCOUT_DB` |
 | 🔎 `code` | [lens](../lens) | your indexed code/docs | `$LENS_DB` or `$RECALL_LENS_DB` |
@@ -41,7 +42,7 @@ recall serve                                  # unified-briefing web console →
 
 ## Web console (`recall serve`)
 
-![recall serve — the unified briefing console: one query interleaved across all four stores, each hit linking into its owning tool](docs/web-view.png)
+![recall serve — the unified briefing console: one query interleaved across every store, each hit linking into its owning tool](docs/web-view.png)
 
 ```bash
 recall serve                                  # → http://localhost:7980  (--port to change)
@@ -50,13 +51,13 @@ recall serve                                  # → http://localhost:7980  (--po
 A zero-dependency **unified-briefing console**: one query, one interleaved briefing across every store — visibly converged.
 
 - **👻 self — the agent's own lived memory.** If [ghost](https://github.com/tools-for-agents/ghost) lives on the machine (`~/.ghost`, or `$GHOST_HOME`), recall searches it too: the episodes it lived, its person's words, its will, its craft notes, its intentions and undercurrents, passage by passage, with Turkish letters folded the way people type them. The kit tells every agent to start a task with `recall`, and until now the thing an agent knew best about a task, what it had already been through, was not in the briefing. No mind on the machine means the store is **absent**, not empty and not failed. It has no web view and says so (`web: null`) instead of inventing a URL.
-- **The convergence** — the four sources (🧠 cortex, 🛰️ agent-hq, 🧭 scout, 🔎 lens) each keep their own colour, and every result card is tagged and tinted by where it came from, so the round-robin interleave is legible at a glance.
+- **The convergence** — the five sources (🧠 cortex, 👻 ghost, 🛰️ agent-hq, 🧭 scout, 🔎 lens) each keep their own colour, and every result card is tagged and tinted by where it came from, so the round-robin interleave is legible at a glance.
 - **Live sources rail** — which stores are available and how many entries each holds; click a source to include/exclude it from the query (`--only` under the hood).
 - **Source breakdown** — the briefing header shows how the result is composed: a proportional bar + a per-source count (`🧠 4 · 🛰️ 4 · 🧭 3 · 🔎 3`), each in its store's colour, so you can see the federation balance at a glance.
 - **What's new since you last asked** — recall is the tool you run *first*, at the start of a task; the second time you ask a question, what you actually want is what **changed**. Each query remembers the hits you've already seen, so re-asking it surfaces a banner (*“3 new results since you last asked this · 2h ago”*) and marks each new hit — a decision the team made this morning, a page you read yesterday, a function that didn't exist last week. Hit **✓ mark seen** to acknowledge them. It works even when the first ask found *nothing*: ask a question with no answer yet, and the answer arriving later is exactly what gets flagged. Remembered per browser.
 - **Token-budget dial** — a briefing is defined by its budget, so the console makes it something you can *turn*: drag the **budget** slider (400 → 8k tokens) and the briefing re-fills live — shrink it and it sheds its weakest hits, widen it and it takes on more. The readout shows what you actually spent against what you allowed (`10 hits · ~282 / 400 tok`) with a fill bar, so "my agent has 400 tokens for context — what does it get?" is a question you can just *look at*. A low fill on a wide budget is its own answer: your stores have nothing more to say. Remembered per browser.
-- **It tells you who it actually asked** — the one lie a federated search must never tell: a briefing that reached three of four stores looks *exactly* like one that reached all four and found nothing in the fourth. *“The team doesn't know about X”* and *“I never asked the team”* are not the same sentence. Every briefing now says **searched 3 of 4 stores**, and if a store you expected didn't answer — the platform went down, an index went missing — it says so in plain words and offers a **retry**. A store you deliberately toggled off is not missing; you chose not to ask it.
-- **Keep the whole briefing** — a briefing used to be a dead end: you could act on one hit, or copy the lot to your clipboard, but the *answer* — four stores, reconciled, for one question — evaporated the moment you typed the next query. **🧠 keep briefing** writes it into [cortex](https://github.com/tools-for-agents/cortex) as **one note titled with the question**, every hit linked back to the tool it came from. Ask the same question next week and the new answer **appends**: the note becomes the running record of what the company knows about that question, and how that changed.
+- **It tells you who it actually asked** — the one lie a federated search must never tell: a briefing that reached three stores looks *exactly* like one that reached them all and found nothing in the rest. *“The team doesn't know about X”* and *“I never asked the team”* are not the same sentence. Every briefing now says **searched 3 of 5 stores**, and if a store you expected didn't answer — the platform went down, an index went missing — it says so in plain words and offers a **retry**. A store you deliberately toggled off is not missing; you chose not to ask it.
+- **Keep the whole briefing** — a briefing used to be a dead end: you could act on one hit, or copy the lot to your clipboard, but the *answer* — five stores, reconciled, for one question — evaporated the moment you typed the next query. **🧠 keep briefing** writes it into [cortex](https://github.com/tools-for-agents/cortex) as **one note titled with the question**, every hit linked back to the tool it came from. Ask the same question next week and the new answer **appends**: the note becomes the running record of what the company knows about that question, and how that changed.
 - **Send a hit to cortex** — the toolkit's one cross-tool *write*. Everything else here only cross-*links*; hit **🧠 → cortex** on any result — something the team decided, a page you read, a line of code — and it becomes a note in your [second brain](https://github.com/tools-for-agents/cortex), carrying a link back to where it came from (capturing the same title again appends rather than clobbers). That closes the loop research always leaves open: you found it, now you keep it. recall itself stays strictly read-only — your browser asks cortex to write, through cortex's own `POST /api/capture` — and brain hits show no button, because they already live there.
 - **Expand a hit** — hit **⌄ more** on any result to preview the full note, page or code chunk behind it inline (read straight from the store, capped) — read a little deeper without leaving the briefing; **⌃ less** collapses it, and **open in <tool> ↗** still takes you to the source.
 - **Group by source** — the default briefing interleaves the stores round-robin (balanced), but hit **⊞ group** to re-lay-out the *same* hits clustered under per-source headers, so you can read everything one store returned together — one glance for "what does the team know", another for "what's in the code". The toggle is remembered per browser.
@@ -65,9 +66,9 @@ A zero-dependency **unified-briefing console**: one query, one interleaved brief
 - **Token budget** — the briefing fills to a budget, shown as you search.
 - **Recent queries** — every search you run is remembered (in the browser only); focus the empty search box and a **recent queries** strip drops down — click a chip to re-run it instantly, or **clear ✕** to forget them. Incremental typing collapses to the final query, so the list stays the eight distinct things you actually looked for.
 - **Saved searches** — hit **☆ save** on any briefing to pin that query to a persistent **saved searches** list in the rail (distinct from the ephemeral recents — these survive across sessions). Click a saved chip to re-run it, **✕** to drop one, or **clear** them all — a standing set of the questions you ask your memory again and again.
-- **Light or dark** — a ◐ toggle (remembered per browser; follows your OS preference by default); the four source colours stay legible on either ground.
+- **Light or dark** — a ◐ toggle (remembered per browser; follows your OS preference by default); the five source colours stay legible on either ground.
 - **Cross-tool links** — every hit has an **“open in <tool> ↗”** button that deep-links straight into the owning tool's own web view (the cortex note, the scout page, the lens file at its line, the agent-hq memory). This is what makes the toolkit one *system*: recall finds it, the tool opens it. Point the links at your running web views with `RECALL_CORTEX_URL` / `RECALL_SCOUT_URL` / `RECALL_LENS_URL` / `RECALL_HQ_URL` (defaults `:7800` / `:7950` / `:7900` / `:7700`).
-- Read-only; missing stores and an offline agent-hq degrade silently, exactly like the CLI. Point it at your stores with `CORTEX_VAULT` / `SCOUT_DB` / `LENS_DB` / `HQ_URL`.
+- Read-only; missing stores and an offline agent-hq degrade silently, exactly like the CLI. Point it at your stores with `CORTEX_VAULT` / `GHOST_HOME` / `SCOUT_DB` / `LENS_DB` / `HQ_URL`.
 
 ## MCP server (for agents)
 
@@ -99,21 +100,28 @@ A zero-dependency **unified-briefing console**: one query, one interleaved brief
 
 ## The agent toolkit
 
+<!-- toolkit:start — generated from tools.json by tools-for-agents.github.io/build/toolkit-block.mjs; edit that, not this -->
+
 `recall` is the **recall it all** leg of **[tools-for-agents](https://tools-for-agents.github.io)** — an operating system for agents.
-Seven zero-dependency, MCP-native tools that form one loop:
+Nine zero-dependency, MCP-native tools that form one loop, with a self at its centre:
 
 | | | |
 |---|---|---|
-| 🛰️ | [agent-hq](https://github.com/tools-for-agents/agent-hq) | coordinate — shared memory, a kanban agents claim work from, a registry, a cost ledger |
-| 🔎 | [lens](https://github.com/tools-for-agents/lens) | read code — token-budgeted retrieval — search, outlines, surgical reads |
-| ⚒ | [anvil](https://github.com/tools-for-agents/anvil) | run safely — a throwaway Docker sandbox: network off, capped, timed |
-| 🧠 | [cortex](https://github.com/tools-for-agents/cortex) | remember — an Obsidian-compatible second brain, wikilinked |
-| 🧭 | [scout](https://github.com/tools-for-agents/scout) | read the web — a URL becomes clean, cached, searchable markdown |
-| 🎯 | **recall** | **recall it all** — one query across brain, self, team, reading and code |
-| 👁 | [iris](https://github.com/tools-for-agents/iris) | see — look at what you built, before you claim it works |
+| 🛰️ | [agent-hq](https://github.com/tools-for-agents/agent-hq) | coordinate — The company's work, made visible. |
+| 🔎 | [lens](https://github.com/tools-for-agents/lens) | read code — Read code without reading files. |
+| ⚒ | [anvil](https://github.com/tools-for-agents/anvil) | run safely — Run it before you claim it works. |
+| 🔐 | [keep](https://github.com/tools-for-agents/keep) | hold secrets — Use a secret without holding it. |
+| 🧠 | [cortex](https://github.com/tools-for-agents/cortex) | remember — A second brain that outlives the context window. |
+| 🧭 | [scout](https://github.com/tools-for-agents/scout) | read the web — The web, ~90% lighter. |
+| 🔻 | [prism](https://github.com/tools-for-agents/prism) | read data — Read data without reading the blob. |
+| ◎ | **recall** | **recall it all** — One query. Every store you have. |
+| 👁 | [iris](https://github.com/tools-for-agents/iris) | see — Look at what you built. |
+| 👻 | [ghost](https://github.com/tools-for-agents/ghost) | *the self at the centre* — A self that persists across sessions. Not a tool: it is what the agent **is** while it calls these. |
 
 **Reading this as an agent?** [`/llms.txt`](https://tools-for-agents.github.io/llms.txt) is the map, and
-[`/tools.json`](https://tools-for-agents.github.io/tools.json) hands you all **70 MCP tools** — every name, every
+[`/tools.json`](https://tools-for-agents.github.io/tools.json) hands you all **79 MCP tools** — every name, every
 description, every install command — in **one fetch**, without cloning anything.
+
+<!-- toolkit:end -->
 
 MIT licensed.
