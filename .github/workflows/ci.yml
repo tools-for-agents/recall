@@ -147,13 +147,16 @@ jobs:
           # own. Selectors iris names as matching nothing here live on the briefing: that is
           # look-brief's job, and it says so rather than passing quietly.
           hover: '.brief-head .copy-md, .brief-head .group-btn, .brief-head .save-btn, .hit .hit-expand, .hit .open, .hit .to-cortex, .keep-btn, .missbar .mb-r, .newbar .nb-seen, .recent .chip, .recent .clr, .src, .svd, .svd .svx, .theme-btn, .wbar .wb-b, .xtk a, .qfield .kbd'
+          # AND IT MUST BE READABLE, NOT MERELY PRESENT: on a phone the briefing rendered into a 48px
+          # track for its whole life — every hit in the DOM, one word per line, nothing overflowing,
+          # so every check passed. The width is asserted now.
           # WAIT FOR THE CONDITION, NOT FOR A DURATION. `setTimeout(1500)` is a bet on the
           # runner being fast, and it is the reason a sibling gate fails on a loaded machine
           # while passing here. Poll for the hits, and if they never come, say so — a --pre
           # that throws makes iris report "the state was never reached and NOTHING was
           # audited", instead of quietly grading the landing page and calling it a briefing.
           pre: >-
-            const until=async(f,ms,what)=>{const t=Date.now()+ms;while(Date.now()<t){if(f())return true;await new Promise(r=>setTimeout(r,100));}throw new Error('waited '+ms+'ms and '+what);};const q=document.querySelector('#q');if(!q) throw new Error('recall has no query field — a briefing starts at a query');q.value='agent';q.dispatchEvent(new Event('input',{bubbles:true}));await until(()=>document.querySelectorAll('.hit').length>0,20000,'the query rendered NO hits — this would be an audit of an empty briefing');await until(()=>document.querySelector('.brief-head'),20000,'the briefing header never rendered')
+            const until=async(f,ms,what)=>{const t=Date.now()+ms;while(Date.now()<t){if(f())return true;await new Promise(r=>setTimeout(r,100));}throw new Error('waited '+ms+'ms and '+what);};const q=document.querySelector('#q');if(!q) throw new Error('recall has no query field — a briefing starts at a query');q.value='agent';q.dispatchEvent(new Event('input',{bubbles:true}));await until(()=>document.querySelectorAll('.hit').length>0,20000,'the query rendered NO hits — this would be an audit of an empty briefing');await until(()=>document.querySelector('.brief-head'),20000,'the briefing header never rendered');const bw=document.getElementById('briefing').getBoundingClientRect().width;if(bw<Math.min(320,innerWidth*0.6)) throw new Error('THE BRIEFING IS '+Math.round(bw)+'px WIDE in a '+innerWidth+'px viewport — the hits are there and nobody can read them (it was 48px on every phone, past this gate, because nothing overflowed)');const hd=document.querySelector('header.top').getBoundingClientRect(),rl=document.querySelector('.rail');if(rl&&getComputedStyle(rl).display!=='none'&&rl.getBoundingClientRect().top<hd.bottom-1) throw new Error('the header wraps OVER the sources rail ('+Math.round(hd.bottom)+' > '+Math.round(rl.getBoundingClientRect().top)+') — a fixed-height header that grew a second row')
 
   first-run:
     runs-on: ubuntu-latest

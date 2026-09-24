@@ -12,12 +12,12 @@ const PROTOCOL = '2024-11-05';
 const tools = [
   {
     name: 'recall_search',
-    description: 'Recall everything relevant to a query across ALL your knowledge at once: your second brain (cortex notes), the team\'s shared memory (agent-hq), your reading history (scout pages) and your code (lens). Returns one ranked, token-budgeted briefing with each hit tagged by source. Use this FIRST when starting a task — it loads the right context so you don\'t re-derive what you already know or re-read the web.',
+    description: 'Recall everything relevant to a query across ALL your knowledge at once: your second brain (cortex notes), your own lived memory if a ghost mind lives on this machine (episodes, your person\'s words, your will and craft notes), the team\'s shared memory (agent-hq), your reading history (scout pages) and your code (lens). Returns one ranked, token-budgeted briefing with each hit tagged by source. Use this FIRST when starting a task — it loads the right context so you don\'t re-derive what you already know or re-read the web.',
     inputSchema: { type: 'object', properties: {
       query: { type: 'string' },
       k: { type: 'integer', description: 'Max total results (default 10)' },
       max_tokens: { type: 'integer', description: 'Token budget for the briefing (default 2000)' },
-      sources: { type: 'array', items: { type: 'string', enum: ['brain', 'team', 'reading', 'code'] },
+      sources: { type: 'array', items: { type: 'string', enum: ['brain', 'self', 'team', 'reading', 'code'] },
         description: 'Restrict to specific stores (default: all available)' },
     }, required: ['query'] },
     run: (a) => r.recall(a.query, a),
@@ -26,9 +26,9 @@ const tools = [
     name: 'recall_expand',
     description: 'Get the FULLER context behind a single recall_search hit — the whole note, page or code chunk it came from, read straight from the source store (capped). A recall_search excerpt is a preview; when one hit is the one you need, expand it here instead of switching to cortex_read / scout_fetch / lens_read and having to know which store it lives in. Pass the hit\'s `source` and `ref` exactly as recall_search returned them.',
     inputSchema: { type: 'object', properties: {
-      source: { type: 'string', enum: ['brain', 'team', 'reading', 'code'],
+      source: { type: 'string', enum: ['brain', 'self', 'team', 'reading', 'code'],
         description: 'Which store the hit came from (the `source` field on a recall_search result)' },
-      ref: { type: 'string', description: 'The hit\'s `ref` (a note slug, a page url, or a code path:line)' },
+      ref: { type: 'string', description: 'The hit\'s `ref` (a note slug, a page url, a code path:line, or a self file#passage)' },
     }, required: ['source', 'ref'] },
     run: (a) => r.expand(a.source, a.ref),
   },

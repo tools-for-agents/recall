@@ -1,6 +1,6 @@
 # AGENTS.md — recall
 
-🎯 **Federated recall across an agent's knowledge.** One query across cortex, agent-hq, scout and lens,
+🎯 **Federated recall across an agent's knowledge.** One query across cortex, ghost (the agent's own mind, when there is one), agent-hq, scout and lens,
 returning a single token-budgeted briefing. Read-only. Use it *first*, at the start of a task.
 Part of [tools-for-agents](https://github.com/tools-for-agents).
 

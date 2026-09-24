@@ -20,6 +20,7 @@ db.prepare('INSERT INTO notes_fts (slug,title,tags,body) VALUES (?,?,?,?)')
   .run('rag', 'RAG', 'ml', 'Retrieval augmented generation fetches relevant chunks for the model.');
 db.close();
 
+process.env.RECALL_GHOST_HOME = '/nonexistent/recall-test-no-ghost'; // never the real ~/.ghost — a test must not read a person's mind
 process.env.RECALL_CORTEX_DB = brainDb;
 process.env.RECALL_SCOUT_DB = join(dir, 'none-scout.db');   // absent → skipped
 process.env.RECALL_LENS_DB = join(dir, 'none-lens.db');     // absent → skipped
@@ -146,10 +147,11 @@ test('a store can match and show you nothing — recall names it instead of look
   } finally { process.env.RECALL_SCOUT_DB = prev; }
 });
 
-test('status reports all four stores', async () => {
+test('status reports all five stores', async () => {
   const s = await r.status();
-  assert.equal(s.stores.length, 4);
-  assert.deepEqual(s.stores.map((x) => x.store).sort(), ['brain', 'code', 'reading', 'team']);
+  assert.equal(s.stores.length, 5);
+  assert.deepEqual(s.stores.map((x) => x.store).sort(), ['brain', 'code', 'reading', 'self', 'team']);
+  assert.equal(s.stores.find((x) => x.store === 'self').available, false, 'no mind here → self is simply not available');
   assert.equal(s.stores.find((x) => x.store === 'brain').available, true);
 });
 

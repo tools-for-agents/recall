@@ -24,6 +24,24 @@ import { spawnSync } from 'node:child_process';
 
 const CANARIES = [
   {
+    why: 'a mind that cannot be read is FAILED by name — never searched-and-empty, the confident "you have lived nothing like this"',
+    file: 'src/core.js',
+    find: '    if (me?.error) failed.self = me.error;',
+    into: '    if (me?.error) { searched.push(\'self\'); bySource.self = []; matchedBy.self = 0; }',
+  },
+  {
+    why: 'Turkish letters fold the way people type them — "piyangoda" must find "PİYANGODA"',
+    file: 'src/self.js',
+    find: "const fold = (s) => String(s).toLowerCase().replace(/ı/g, 'i').normalize('NFKD').replace(/[\u0300-\u036f]/g, '');",
+    into: 'const fold = (s) => String(s).toLowerCase();',
+  },
+  {
+    why: 'a self ref cannot walk out of the mind directory',
+    file: 'src/self.js',
+    find: "  if (relative(home, full).startsWith('..')) throw new Error(`\"${ref}\" points outside the mind`);",
+    into: '  void 0;',
+  },
+  {
     why: 'a mistyped source ("brian") is a MISTAKE, not an empty briefing — without this it silently searches nothing and reads as "not in your knowledge"',
     file: 'src/core.js',
     find: '    if (bad.length) {',

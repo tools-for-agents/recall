@@ -17,7 +17,7 @@
     --txt:#e6e9f0; --muted:#8b93a6; --faint:#788092;
     --accent:#ec4899; --accent-dim:#7c2d52; --accent-glow:rgba(236,72,153,.5);
     /* the four converging sources */
-    --brain:#a78bfa; --team:#6ea8fe; --reading:#e0a24e; --code:#4fd6be;
+    --brain:#a78bfa; --self:#9aa4b2; --team:#6ea8fe; --reading:#e0a24e; --code:#4fd6be;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     --mono:ui-monospace,"SFMono-Regular","JetBrains Mono",Menlo,monospace;
   }
@@ -28,7 +28,7 @@
     --bg:#f5f7fb; --panel:#ffffff; --panel-2:#eef1f7; --line:#e0e4ee; --line-2:#cdd3e0;
     --txt:#191c27; --muted:#5b6376; --faint:#666d80;
     --accent:#db2777; --accent-dim:#f4bcd8; --accent-glow:rgba(219,39,119,.25);
-    --brain:#7c3aed; --team:#2563eb; --reading:#a05a00; --code:#0f766e;
+    --brain:#7c3aed; --self:#4b5563; --team:#2563eb; --reading:#a05a00; --code:#0f766e;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -36,7 +36,7 @@
       --bg:#f5f7fb; --panel:#ffffff; --panel-2:#eef1f7; --line:#e0e4ee; --line-2:#cdd3e0;
       --txt:#191c27; --muted:#5b6376; --faint:#666d80;
       --accent:#db2777; --accent-dim:#f4bcd8; --accent-glow:rgba(219,39,119,.25);
-      --brain:#7c3aed; --team:#2563eb; --reading:#a05a00; --code:#0f766e;
+      --brain:#7c3aed; --self:#4b5563; --team:#2563eb; --reading:#a05a00; --code:#0f766e;
     }
   }
   * { box-sizing:border-box; }
@@ -56,7 +56,7 @@
   @media (max-width:720px) {
     body { grid-template-columns:1fr; grid-template-areas:"top" "rail" "main"; grid-template-rows:auto auto 1fr; height:auto; overflow:auto; }
     .rail { max-height:34vh; border-right:0; border-bottom:1px solid var(--line); }
-    header.top { flex-wrap:wrap; }
+    header.top { flex-wrap:wrap; height:auto; min-height:60px; padding-top:8px; padding-bottom:8px; row-gap:8px; }   /* a fixed 60px header that wraps to two rows spills its second row over the rail */
     section, main { padding-bottom: 56px; }
   }
 
@@ -299,7 +299,12 @@
 
   ::-webkit-scrollbar { width:10px; }
   ::-webkit-scrollbar-thumb { background:var(--line); border-radius:8px; }
-  @media (max-width:780px) { body { grid-template-columns:0 1fr; } .rail { display:none; } .qwrap { max-width:none; } }
+  /* THE BRIEFING WAS 48px WIDE ON A PHONE. This rule is older than the 720px one above, and sits
+     below it, so on a phone it won: two columns ("0 1fr") under a ONE-column area map ("top" "rail"
+     "main") put the whole briefing into the zero-width track. Every gate looked at the welcome page;
+     none had ever rendered a briefing on a phone, which is the one thing this page is for. */
+  @media (max-width:780px) and (min-width:721px) { body { grid-template-columns:0 1fr; } .rail { display:none; } .qwrap { max-width:none; } }
+  @media (max-width:780px) { .qwrap { max-width:none; } }
 
 /* cross-tool footer — this is one of tools-for-agents' six web views */
 .xtk{position:fixed;left:50%;bottom:0;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap: 12px;max-width:96vw;overflow-x:auto;padding: 4px 16px;border:1px solid rgba(255,255,255,.1);border-bottom:none;border-radius:12px 12px 0 0;background:rgba(12,13,17,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1;white-space:nowrap;color:#d6dbe4;scrollbar-width:none;}
@@ -338,7 +343,7 @@
     <div id="sources"></div>
     <div class="rail-label rail-saved-label" id="savedLabel" hidden><span>saved searches</span><button class="svclr" data-clearsaved title="Clear saved searches">clear ✕</button></div>
     <div id="saved"></div>
-    <div class="rail-foot">round-robin interleave<br />🧠 brain → 🛰️ team → 🧭 reading → 🔎 code</div>
+    <div class="rail-foot">round-robin interleave<br />🧠 brain → 👻 self → 🛰️ team → 🧭 reading → 🔎 code</div>
   </aside>
 
   <main class="main">
@@ -357,9 +362,10 @@
         <text x="130" y="106" text-anchor="middle" font-size="16" fill="#0b0d12">◎</text>
       </svg>
       <h2 id="heroTitle">One query. All your memory.</h2>
-      <p id="heroCopy">recall federates a single search across every store an agent keeps — your second brain, the team's memory, everything you've read, and your code — and returns one token-budgeted briefing.</p>
+      <p id="heroCopy">recall federates a single search across every store an agent keeps — your second brain, your own lived memory, the team's memory, everything you've read, and your code — and returns one token-budgeted briefing.</p>
       <div class="legend">
         <span><i style="color:var(--brain)"></i>🧠 cortex · brain</span>
+        <span><i style="color:var(--self)"></i>👻 ghost · self</span>
         <span><i style="color:var(--team)"></i>🛰️ agent-hq · team</span>
         <span><i style="color:var(--reading)"></i>🧭 scout · reading</span>
         <span><i style="color:var(--code)"></i>🔎 lens · code</span>
@@ -546,11 +552,12 @@ document.getElementById('theme').addEventListener('click', () => {
 
 const SRC = {
   brain:   { glyph: '🧠', tool: 'cortex',   label: 'brain',   color: 'var(--brain)' },
+  self:    { glyph: '👻', tool: 'ghost',    label: 'self',    color: 'var(--self)' },
   team:    { glyph: '🛰️', tool: 'agent-hq', label: 'team',    color: 'var(--team)' },
   reading: { glyph: '🧭', tool: 'scout',    label: 'reading', color: 'var(--reading)' },
   code:    { glyph: '🔎', tool: 'lens',     label: 'code',    color: 'var(--code)' },
 };
-const ORDER = ['brain', 'team', 'reading', 'code'];
+const ORDER = ['brain', 'self', 'team', 'reading', 'code'];
 // Briefing layout: interleaved (round-robin, default) or grouped under per-source headers.
 const GKEY = 'recall:grouped';
 let grouped = (() => { try { return localStorage.getItem(GKEY) === '1'; } catch { return false; } })();
@@ -726,7 +733,7 @@ function linkFor(source, ref) {
 function renderSources() {
   const byStore = Object.fromEntries(STATUS.stores.map((s) => [s.store, s]));
   const live = STATUS.stores.filter((s) => s.available).length;
-  $('#srcCount').textContent = live + ' / 4 live';
+  $('#srcCount').textContent = live + ' / ' + STATUS.stores.length + ' live';   // counted, never typed: it was '/ 4' when a fifth store arrived
 
   // AN EMPTY STATE THAT DOES NOT TELL YOU HOW TO FILL IT IS AN EMPTY STATE YOU HAVE NOT
   // FINISHED WRITING.

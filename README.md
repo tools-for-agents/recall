@@ -49,6 +49,7 @@ recall serve                                  # → http://localhost:7980  (--po
 
 A zero-dependency **unified-briefing console**: one query, one interleaved briefing across every store — visibly converged.
 
+- **👻 self — the agent's own lived memory.** If [ghost](https://github.com/tools-for-agents/ghost) lives on the machine (`~/.ghost`, or `$GHOST_HOME`), recall searches it too: the episodes it lived, its person's words, its will, its craft notes, its intentions and undercurrents, passage by passage, with Turkish letters folded the way people type them. The kit tells every agent to start a task with `recall`, and until now the thing an agent knew best about a task, what it had already been through, was not in the briefing. No mind on the machine means the store is **absent**, not empty and not failed. It has no web view and says so (`web: null`) instead of inventing a URL.
 - **The convergence** — the four sources (🧠 cortex, 🛰️ agent-hq, 🧭 scout, 🔎 lens) each keep their own colour, and every result card is tagged and tinted by where it came from, so the round-robin interleave is legible at a glance.
 - **Live sources rail** — which stores are available and how many entries each holds; click a source to include/exclude it from the query (`--only` under the hood).
 - **Source breakdown** — the briefing header shows how the result is composed: a proportional bar + a per-source count (`🧠 4 · 🛰️ 4 · 🧭 3 · 🔎 3`), each in its store's colour, so you can see the federation balance at a glance.
@@ -108,7 +109,7 @@ Seven zero-dependency, MCP-native tools that form one loop:
 | ⚒ | [anvil](https://github.com/tools-for-agents/anvil) | run safely — a throwaway Docker sandbox: network off, capped, timed |
 | 🧠 | [cortex](https://github.com/tools-for-agents/cortex) | remember — an Obsidian-compatible second brain, wikilinked |
 | 🧭 | [scout](https://github.com/tools-for-agents/scout) | read the web — a URL becomes clean, cached, searchable markdown |
-| 🎯 | **recall** | **recall it all** — one query across brain, team, reading and code |
+| 🎯 | **recall** | **recall it all** — one query across brain, self, team, reading and code |
 | 👁 | [iris](https://github.com/tools-for-agents/iris) | see — look at what you built, before you claim it works |
 
 **Reading this as an agent?** [`/llms.txt`](https://tools-for-agents.github.io/llms.txt) is the map, and

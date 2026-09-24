@@ -19,6 +19,7 @@ db.prepare('INSERT INTO notes_fts (slug,title,tags,body) VALUES (?,?,?,?)')
   .run('rag', 'RAG', 'ml', 'Retrieval augmented generation fetches relevant chunks for the model.');
 db.close();
 
+process.env.RECALL_GHOST_HOME = '/nonexistent/recall-test-no-ghost'; // never the real ~/.ghost — a test must not read a person's mind
 process.env.RECALL_CORTEX_DB = brainDb;
 process.env.RECALL_SCOUT_DB = join(dir, 'absent-scout.db');
 process.env.RECALL_LENS_DB = join(dir, 'absent-lens.db');
@@ -32,7 +33,7 @@ test('serve: status, federated search, and the stats summary', async () => {
   const base = `http://localhost:${server.address().port}`;
   try {
     const status = await fetch(base + '/api/status').then((r) => r.json());
-    assert.equal(status.stores.length, 4, 'status reports all four stores');
+    assert.equal(status.stores.length, 5, 'status reports all five stores');
     assert.equal(status.stores.find((s) => s.store === 'brain').available, true, 'brain is available');
     assert.equal(status.stores.find((s) => s.store === 'reading').available, false, 'absent store is offline');
     // THE TEAM STORE IS THE ONE THAT LIVES OVER HTTP, and its availability defaults to false and
@@ -43,7 +44,10 @@ test('serve: status, federated search, and the stats summary', async () => {
     assert.equal(status.stores.find((s) => s.store === 'team').available, false,
       'the team store is offline when agent-hq is unreachable — recall must not claim a dead store is live');
     // each store exposes its web-view base url so the console can build cross-tool links
-    assert.ok(status.stores.every((s) => typeof s.web === 'string' && /^https?:\/\//.test(s.web)), 'every store carries a web url');
+    // …except a store with no web view, which says so with null rather than a url nobody serves
+    // (ghost is markdown on disk: there is no page to link to, and a made-up one would 404).
+    assert.ok(status.stores.filter((s) => s.store !== 'self').every((s) => typeof s.web === 'string' && /^https?:\/\//.test(s.web)), 'every store with a web view carries its url');
+    assert.equal(status.stores.find((s) => s.store === 'self').web, null, 'self has no web view and says so');
     assert.match(status.stores.find((s) => s.store === 'code').web, /7900/, 'lens web url defaults to :7900');
 
     const r = await fetch(base + '/api/search?q=retrieval%20chunks').then((res) => res.json());
@@ -67,7 +71,7 @@ test('serve: status, federated search, and the stats summary', async () => {
     assert.ok(!only.searched.includes('brain'), 'only= restricts which stores are queried');
 
     const stats = await fetch(base + '/api/stats').then((res) => res.json());
-    assert.equal(stats.stores, 4);
+    assert.equal(stats.stores, 5);
     assert.ok(stats.available >= 1 && stats.entries >= 1, 'stats summarises live stores');
   } finally { server.close(); }
 });

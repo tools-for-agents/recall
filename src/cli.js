@@ -15,7 +15,7 @@ for (let i = 0; i < rest.length; i++) {
   else flags[a] = true;
 }
 const out = (o) => console.log(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
-const SIGIL = { brain: '🧠', team: '🛰️', reading: '🧭', code: '🔎' };
+const SIGIL = { brain: '🧠', self: '👻', team: '🛰️', reading: '🧭', code: '🔎' };
 
 try {
   if (cmd === 'status') {
@@ -93,7 +93,7 @@ try {
   } else {
     out(`recall — one query across your whole memory (cortex + agent-hq + scout + lens)
 
-  recall "<query>" [-k N] [--tokens N] [--only brain,team,reading,code]
+  recall "<query>" [-k N] [--tokens N] [--only brain,self,team,reading,code]
   recall status                         which knowledge stores are available
   recall serve [--port 7980]            browse the same briefing in a web view
 
@@ -101,6 +101,7 @@ try {
     🧠 brain    cortex notes    ($CORTEX_VAULT/.cortex/index.db  or  $RECALL_CORTEX_DB)
     🛰️ team     agent-hq memory ($HQ_URL  or  $RECALL_HQ_URL, default http://localhost:7700)
     🧭 reading  scout pages      ($SCOUT_DB  or  $RECALL_SCOUT_DB)
+    👻 self     your ghost's mind ($GHOST_HOME, default ~/.ghost  or  $RECALL_GHOST_HOME) — absent if none
     🔎 code     lens chunks      ($LENS_DB   or  $RECALL_LENS_DB)`);
   }
 } catch (e) {

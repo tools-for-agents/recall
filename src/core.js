@@ -5,6 +5,7 @@
 // of searching four places by hand. Decoupled: it only reads their stable schemas.
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
+import { searchSelf, statusSelf, expandSelf } from './self.js';
 
 const estTokens = (s) => Math.ceil((s || '') .length / 4);
 const env = (k) => process.env[k];
@@ -203,10 +204,10 @@ async function fetchTeam(query, limit) {
 
 // Priority order for the round-robin interleave (your brain first, then the team,
 // then what you've read, then code).
-const ORDER = ['brain', 'team', 'reading', 'code'];
+const ORDER = ['brain', 'self', 'team', 'reading', 'code'];
 // The stores recall can federate. Derived from STORES (+ the HTTP-only 'team') so it never drifts
 // from what actually gets searched.
-const VALID_SOURCES = new Set([...STORES.map((s) => s.name), 'team']);
+const VALID_SOURCES = new Set([...STORES.map((s) => s.name), 'self', 'team']);
 
 // ── federated recall ───────────────────────────────────────────────────────────
 export async function recall(query, { k = 10, max_tokens = 2000, sources } = {}) {
@@ -282,6 +283,14 @@ export async function recall(query, { k = 10, max_tokens = 2000, sources } = {})
       const i = searched.indexOf(store.name);
       if (i >= 0) searched.splice(i, 1);
     } finally { db.close(); }
+  }
+
+  // The agent's own mind (self.js): markdown on disk, searched as files. Same three states as any
+  // store — absent (no mind here), failed (could not be read), searched (with its haystack size).
+  if (!wanted || wanted.has('self')) {
+    const me = searchSelf(query, Math.max(k * 2, 20));
+    if (me?.error) failed.self = me.error;
+    else if (me) { searched.push('self'); bySource.self = me.rows; matchedBy.self = me.matched; corpusBy.self = me.entries; }
   }
 
   if (!wanted || wanted.has('team')) {
@@ -397,6 +406,7 @@ export async function status() {
     }
   } catch { /* platform not running → unavailable, and that is all we know */ }
   stores.push(team);
+  stores.push(statusSelf());
   return { stores };
 }
 
@@ -450,6 +460,7 @@ export async function expand(source, ref) {
     }
     return { source, ref, text: null, truncated: false };
   }
+  if (source === 'self') { const r = expandSelf(ref); return r.text == null ? { source, ref, text: null, truncated: false } : { source, ref, ...cap(r.text), meta: r.meta }; }
   const store = STORES.find((s) => s.name === source);
   if (!store) return { source, ref, text: null, truncated: false };
   const path = store.db();

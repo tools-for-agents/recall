@@ -23,6 +23,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+process.env.RECALL_GHOST_HOME = '/nonexistent/recall-test-no-ghost'; // never the real ~/.ghost — a test must not read a person's mind
 
 const CLI = resolve(import.meta.dirname, '..', 'src', 'cli.js');
 const dir = mkdtempSync(join(tmpdir(), 'recall-cli-'));

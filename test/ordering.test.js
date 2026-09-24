@@ -33,6 +33,7 @@ function buildBrain() {
 }
 buildBrain();
 
+process.env.RECALL_GHOST_HOME = '/nonexistent/recall-test-no-ghost'; // never the real ~/.ghost — a test must not read a person's mind
 process.env.RECALL_CORTEX_DB = brainDb;
 process.env.RECALL_SCOUT_DB = join(dir, 'absent-scout.db');
 process.env.RECALL_LENS_DB = join(dir, 'absent-lens.db');
